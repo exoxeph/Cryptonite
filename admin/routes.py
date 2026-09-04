@@ -3,6 +3,7 @@
 from flask import Blueprint, g, redirect, render_template, request, url_for
 
 from auth.decorators import role_required
+from crypto import key_manager
 from evidence.services import list_evidence
 from posts.services import (
     PostNotFoundError,
@@ -14,6 +15,29 @@ from posts.services import (
 
 
 admin_bp = Blueprint("admin", __name__)
+VALID_KEY_PURPOSES = frozenset(key_manager.PURPOSE_ALGORITHMS)
+
+
+@admin_bp.get("/admin/keys")
+@role_required("admin")
+def keys():
+    metadata = key_manager.list_key_metadata()
+    grouped = {purpose: [] for purpose in key_manager.PURPOSE_ALGORITHMS}
+    for row in metadata:
+        grouped[row["purpose"]].append(row)
+    return render_template("admin/keys.html", keys_by_purpose=grouped)
+
+
+@admin_bp.post("/admin/keys/<purpose>/rotate")
+@role_required("admin")
+def rotate_key(purpose):
+    if purpose not in VALID_KEY_PURPOSES:
+        return "Unknown key purpose.", 400
+    try:
+        key_manager.rotate_key(purpose)
+    except (KeyError, TypeError, ValueError):
+        return "Key rotation could not be completed.", 400
+    return redirect(url_for("admin.keys"))
 
 
 @admin_bp.get("/admin/posts")

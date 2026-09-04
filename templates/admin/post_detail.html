@@ -2,6 +2,7 @@
 {% block title %}Admin complaint - Authority Bridged{% endblock %}
 {% block content %}
 <h1>{{ post.title }}</h1>
+<p><a href="{{ url_for('admin.keys') }}">Key Management</a></p>
 <p>{{ post.description }}</p>
 <p>Owner: {{ post.display_owner }}</p>
 <p>Anonymous: {{ "Yes" if post.anonymous else "No" }}</p>

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Key management - Authority Bridged{% endblock %}
+{% block content %}
+<h1>Key management</h1>
+<p><a href="{{ url_for('admin.posts') }}">Back to complaints</a></p>
+{% for purpose, rows in keys_by_purpose.items() %}
+<section>
+  <h2>{{ purpose }}</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Version</th>
+        <th>Algorithm</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Retired</th>
+        <th>Public key</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for key in rows %}
+      <tr>
+        <td>{{ key.version }}</td>
+        <td>{{ key.algorithm }}</td>
+        <td>{{ key.status }}</td>
+        <td>{{ key.created_at }}</td>
+        <td>{{ key.retired_at or "-" }}</td>
+        <td>{{ key.public_key or "-" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No keys bootstrapped.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin.rotate_key', purpose=purpose) }}">
+    <button type="submit">Rotate {{ purpose }}</button>
+  </form>
+</section>
+{% endfor %}
+{% endblock %}

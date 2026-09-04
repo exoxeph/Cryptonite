@@ -100,6 +100,16 @@ def rotate_key(purpose: str) -> dict:
     return generate_key(purpose)
 
 
+def list_key_metadata() -> list[dict]:
+    """Return display-safe key metadata without unwrapping private material."""
+    rows = get_db().execute(
+        """SELECT purpose, algorithm, version, public_key, status, created_at, retired_at
+           FROM keys
+           ORDER BY purpose ASC, version DESC"""
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def retire_key(purpose: str, version: int) -> None:
     """Retire a key while retaining it for historical decryption."""
     _change_lifecycle(purpose, version, "RETIRED", require_replacement=True)

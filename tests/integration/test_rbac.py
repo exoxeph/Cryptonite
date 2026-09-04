@@ -341,9 +341,11 @@ def test_admin_detail_includes_authorized_evidence_link(admin_app):
 
 def test_phase16_route_inventory_matches_implemented_scope(admin_app):
     expected = {
+        ("GET", "/admin/keys"),
         ("GET", "/admin/posts"),
         ("GET", "/admin/posts/<int:post_id>"),
         ("POST", "/admin/posts/<int:post_id>/acknowledge"),
+        ("POST", "/admin/keys/<purpose>/rotate"),
         ("POST", "/admin/posts/<int:post_id>/status"),
         ("GET", "/dashboard"),
         ("GET", "/evidence/<int:evidence_id>"),
@@ -376,7 +378,7 @@ def test_phase16_route_inventory_matches_implemented_scope(admin_app):
         for method in sorted(rule.methods - {"HEAD", "OPTIONS"})
     }
     assert actual == expected
-    assert not any(rule.rule.startswith("/admin/keys") for rule in admin_app.url_map.iter_rules())
+    assert any(rule.rule == "/admin/keys" for rule in admin_app.url_map.iter_rules())
 
 
 def test_pending_otp_is_not_authenticated_for_protected_routes(admin_app):
