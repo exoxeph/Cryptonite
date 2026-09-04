@@ -39,7 +39,10 @@ class Config:
     OTP_EXPIRY_SECONDS = _get_int("OTP_EXPIRY_SECONDS", 300)
     MAX_EVIDENCE_SIZE_BYTES = _get_int("MAX_EVIDENCE_SIZE_BYTES", 200 * 1024)
 
-    SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "authority_bridged_session")
+    # Flask's signed cookie is limited to the temporary pending-OTP marker.
+    # The authenticated server-revocable cookie uses the frozen environment name.
+    SESSION_COOKIE_NAME = "authority_bridged_pending"
+    AUTH_SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "authority_bridged_session")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
     SESSION_COOKIE_SECURE = _get_bool("SESSION_COOKIE_SECURE", False)

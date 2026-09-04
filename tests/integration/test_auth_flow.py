@@ -24,6 +24,12 @@ class AuthConfig:
     EMAIL_API_PROVIDER = "resend"
     EMAIL_API_KEY = "test-key"
     EMAIL_FROM_ADDRESS = "test@example.com"
+    SESSION_COOKIE_NAME = "authority_bridged_pending"
+    AUTH_SESSION_COOKIE_NAME = "authority_bridged_session"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = False
+    SESSION_LIFETIME_SECONDS = 3600
 
 
 @pytest.fixture
@@ -181,10 +187,10 @@ def test_failed_older_delivery_does_not_invalidate_newer_otp(auth_app, monkeypat
         second = client.post("/login", data={"email": "user@example.com", "password": "secret"})
         assert first.status_code == 200
         assert second.status_code == 302
-        assert sent and client.post("/verify-otp", data={"otp": sent[0]}).status_code == 200
+        assert sent and client.post("/verify-otp", data={"otp": sent[0]}).status_code == 302
 
 
-def test_verify_route_requires_pending_auth_and_hands_off_without_session(auth_app, monkeypatch):
+def test_verify_route_requires_pending_auth_and_creates_session_after_otp(auth_app, monkeypatch):
     with auth_app.test_client() as client:
         assert client.get("/verify-otp").status_code == 302
         _register(client)
@@ -192,9 +198,9 @@ def test_verify_route_requires_pending_auth_and_hands_off_without_session(auth_a
         monkeypatch.setattr(email_service, "send_otp_email", lambda _address, code: sent.append(code))
         client.post("/login", data={"email": "user@example.com", "password": "secret"})
         response = client.post("/verify-otp", data={"otp": sent[0]})
-        assert response.status_code == 200
-        assert b"Session creation is pending Phase 8" in response.data
+        assert response.status_code == 302
+        assert response.location.endswith("/dashboard")
         with client.session_transaction() as flask_session:
             assert "pending_auth_user_id" not in flask_session
     with auth_app.app_context():
-        assert db.query_one("SELECT COUNT(*) AS count FROM sessions")["count"] == 0
+        assert db.query_one("SELECT COUNT(*) AS count FROM sessions")["count"] == 1

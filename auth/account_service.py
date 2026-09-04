@@ -35,6 +35,11 @@ def find_user_by_email(normalized_email: str):
     )
 
 
+def get_user_by_id(user_id: int):
+    """Load the authoritative user row used after successful OTP verification."""
+    return db.query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+
+
 def serialize_rsa_ciphertext(blocks: list[int]) -> bytes:
     """Serialize RSA ciphertext blocks as compact JSON for SQLite BLOB storage."""
     if not isinstance(blocks, list) or not all(isinstance(block, int) and block >= 0 for block in blocks):
