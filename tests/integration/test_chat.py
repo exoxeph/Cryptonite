@@ -178,6 +178,10 @@ def test_tampered_ciphertext_detected(chat_app, monkeypatch):
         client.post(f"/posts/{post_id}/chat", data={"message": "secret"})
     with chat_app.app_context():
         db.execute("UPDATE chat_messages SET ciphertext = ? WHERE id = 1", ("not-json",))
+        monkeypatch.setattr(
+            "chat.services.deserialize_ecc_ciphertext",
+            lambda *args: pytest.fail("deserialization must be skipped"),
+        )
         monkeypatch.setattr("chat.services.ecc_decrypt_bytes", lambda *args: pytest.fail("decryption must be skipped"))
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
     assert messages[0]["integrity_ok"] is False
