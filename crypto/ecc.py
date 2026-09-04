@@ -17,7 +17,7 @@ def ecc_generate_keypair() -> dict:
 def ecc_encrypt_point(m_point: Point, public_key: Point) -> tuple[Point, Point]:
     """Encrypt a curve point as ``(C1, C2) = (kG, M + kQ)`` with fresh k."""
     _require_point(m_point, "plaintext")
-    _require_point(public_key, "public key")
+    _require_public_key(public_key)
     ephemeral = secrets.randbelow(N - 1) + 1
     c1 = scalar_multiply(ephemeral, G)
     c2 = point_add(m_point, scalar_multiply(ephemeral, public_key))
@@ -26,6 +26,8 @@ def ecc_encrypt_point(m_point: Point, public_key: Point) -> tuple[Point, Point]:
 
 def ecc_decrypt_point(c1: Point, c2: Point, private_key: int) -> Point:
     """Recover ``M`` as ``C2 - dC1`` using the EC-ElGamal identity dC1=kQ."""
+    if c1 is None:
+        raise ValueError("EC-ElGamal C1 cannot be the point at infinity")
     _require_point(c1, "ciphertext C1")
     _require_point(c2, "ciphertext C2")
     if not isinstance(private_key, int) or not 1 <= private_key < N:
@@ -37,3 +39,9 @@ def ecc_decrypt_point(c1: Point, c2: Point, private_key: int) -> Point:
 def _require_point(point: Point, name: str) -> None:
     if not is_on_curve(point):
         raise ValueError(f"{name} is not on the configured elliptic curve")
+
+
+def _require_public_key(point: Point) -> None:
+    """Reject infinity as a public key because it would expose plaintext points."""
+    if point is None or not is_on_curve(point):
+        raise ValueError("ECC public key must be a non-infinity curve point")

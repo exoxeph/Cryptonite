@@ -80,6 +80,17 @@ def test_invalid_ciphertext_and_private_scalar_rejected():
             ecc_decrypt_point(*ciphertext, invalid)
 
 
+def test_infinity_public_key_rejected():
+    with pytest.raises(ValueError, match="public key"):
+        ecc_encrypt_point(G, None)
+
+
+def test_infinity_c1_rejected():
+    pair = ecc_generate_keypair()
+    with pytest.raises(ValueError, match="C1"):
+        ecc_decrypt_point(None, G, pair["private"])
+
+
 def test_point_double_at_vertical_tangent():
     assert is_on_curve((P - 1, 0))
     assert point_double((P - 1, 0)) is None
