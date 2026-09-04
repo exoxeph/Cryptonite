@@ -23,6 +23,10 @@ def can_view_evidence(user, evidence_or_post) -> bool:
     )
 
 
+def can_upload_evidence(user, post) -> bool:
+    return user is not None and user["role"] == "student" and is_owner(user, post["owner_id"])
+
+
 def can_manage_status(user) -> bool:
     return is_admin(user)
 

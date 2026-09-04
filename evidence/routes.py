@@ -5,7 +5,7 @@ from io import BytesIO
 from flask import Blueprint, current_app, g, redirect, request, send_file, url_for
 
 from auth.decorators import login_required
-from auth.rbac import is_owner
+from auth.rbac import can_upload_evidence
 from evidence.services import (
     EvidenceNotFoundError,
     EvidenceValidationError,
@@ -25,7 +25,7 @@ def upload_evidence(post_id):
     post = db.query_one("SELECT id, owner_id FROM posts WHERE id = ?", (post_id,))
     if post is None:
         return "Post not found.", 404
-    if not is_owner(g.current_user, post["owner_id"]):
+    if not can_upload_evidence(g.current_user, post):
         return "You are not allowed to upload evidence.", 403
     uploaded = request.files.get("file")
     if uploaded is None or not uploaded.filename:

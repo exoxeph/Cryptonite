@@ -1,3 +1,5 @@
+import io
+import hashlib
 import time
 
 import pytest
@@ -335,3 +337,160 @@ def test_admin_detail_includes_authorized_evidence_link(admin_app):
         _authenticate(client, admin_app, admin)
         response = client.get(f"/admin/posts/{post_id}")
     assert b"/evidence/1" in response.data
+
+
+def test_phase16_route_inventory_matches_implemented_scope(admin_app):
+    expected = {
+        ("GET", "/admin/posts"),
+        ("GET", "/admin/posts/<int:post_id>"),
+        ("POST", "/admin/posts/<int:post_id>/acknowledge"),
+        ("POST", "/admin/posts/<int:post_id>/status"),
+        ("GET", "/dashboard"),
+        ("GET", "/evidence/<int:evidence_id>"),
+        ("GET", "/health"),
+        ("GET", "/login"),
+        ("POST", "/login"),
+        ("POST", "/logout"),
+        ("GET", "/posts"),
+        ("GET", "/posts/<int:post_id>"),
+        ("GET", "/posts/<int:post_id>/chat"),
+        ("POST", "/posts/<int:post_id>/chat"),
+        ("GET", "/posts/<int:post_id>/edit"),
+        ("POST", "/posts/<int:post_id>/edit"),
+        ("POST", "/posts/<int:post_id>/evidence"),
+        ("POST", "/posts/<int:post_id>/upvote"),
+        ("GET", "/posts/new"),
+        ("POST", "/posts/new"),
+        ("GET", "/profile"),
+        ("POST", "/profile"),
+        ("GET", "/register"),
+        ("POST", "/register"),
+        ("GET", "/register/success"),
+        ("GET", "/verify-otp"),
+        ("POST", "/verify-otp"),
+    }
+    actual = {
+        (method, rule.rule)
+        for rule in admin_app.url_map.iter_rules()
+        if rule.endpoint != "static"
+        for method in sorted(rule.methods - {"HEAD", "OPTIONS"})
+    }
+    assert actual == expected
+    assert not any(rule.rule.startswith("/admin/keys") for rule in admin_app.url_map.iter_rules())
+
+
+def test_pending_otp_is_not_authenticated_for_protected_routes(admin_app):
+    student = _user(admin_app, "pending@example.com")
+    with admin_app.test_client() as client:
+        with client.session_transaction() as state:
+            state["pending_auth_user_id"] = student
+        for path in ("/profile", "/posts", "/admin/posts"):
+            assert client.get(path).status_code == 302
+
+
+def test_owner_non_owner_admin_permission_matrix(admin_app):
+    owner = _user(admin_app, "owner@example.com", name="Owner")
+    other = _user(admin_app, "other@example.com", name="Other")
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client, anonymous=True)
+        upload = client.post(
+            f"/posts/{post_id}/evidence",
+            data={"file": (io.BytesIO(b"%PDF-1.4 demo"), "proof.pdf")},
+            content_type="multipart/form-data",
+        )
+        assert upload.status_code == 302
+    with admin_app.app_context():
+        evidence_id = db.query_one("SELECT id FROM evidence WHERE post_id = ?", (post_id,))["id"]
+
+    cases = {
+        "owner": (owner, {"post": 200, "edit": 200, "evidence": 200, "chat": 200, "admin": 403}),
+        "other": (other, {"post": 200, "edit": 403, "evidence": 403, "chat": 403, "admin": 403}),
+        "admin": (admin, {"post": 200, "edit": 403, "evidence": 200, "chat": 200, "admin": 200}),
+    }
+    for _, (user_id, expected) in cases.items():
+        with admin_app.test_client() as client:
+            _authenticate(client, admin_app, user_id)
+            assert client.get(f"/posts/{post_id}").status_code == expected["post"]
+            assert client.get(f"/posts/{post_id}/edit").status_code == expected["edit"]
+            assert client.get(f"/evidence/{evidence_id}").status_code == expected["evidence"]
+            assert client.get(f"/posts/{post_id}/chat").status_code == expected["chat"]
+            assert client.get("/admin/posts").status_code == expected["admin"]
+
+    with admin_app.test_client() as client:
+        assert client.get(f"/posts/{post_id}").status_code == 302
+        assert client.get(f"/evidence/{evidence_id}").status_code == 302
+        assert client.get(f"/posts/{post_id}/chat").status_code == 302
+        assert client.get("/admin/posts").status_code == 302
+
+
+def test_phase16_sensitive_mutations_ignore_crafted_identity_fields(admin_app):
+    owner = _user(admin_app, "owner@example.com")
+    other = _user(admin_app, "other@example.com")
+    admin = _user(admin_app, "admin@example.com", role="admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client)
+
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        response = client.post(
+            "/posts/new",
+            data={"title": "forged", "description": "forged", "owner_id": owner, "role": "student"},
+        )
+        assert response.status_code == 403
+
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, other)
+        assert client.post(
+            f"/posts/{post_id}/edit",
+            data={"title": "forged", "description": "forged", "owner_id": owner, "user_id": owner},
+        ).status_code == 403
+        assert client.post(
+            f"/posts/{post_id}/evidence",
+            data={
+                "owner_id": owner,
+                "file": (io.BytesIO(b"%PDF-1.4 demo"), "forged.pdf"),
+            },
+            content_type="multipart/form-data",
+        ).status_code == 403
+        assert client.post(
+            f"/admin/posts/{post_id}/status",
+            data={"new_status": "Acknowledged", "role": "admin", "actor_id": admin},
+        ).status_code == 403
+
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        assert client.post(
+            f"/posts/{post_id}/upvote",
+            data={"user_id": other, "role": "student"},
+        ).status_code == 403
+
+
+def test_student_only_post_creation_and_registration_are_server_enforced(admin_app):
+    admin = _user(admin_app, "admin@example.com", role="admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        assert client.post(
+            "/posts/new",
+            data={"title": "admin", "description": "admin", "role": "student", "owner_id": "1"},
+        ).status_code == 403
+
+    with admin_app.test_client() as client:
+        assert client.post(
+            "/register",
+            data={
+                "name": "Registered",
+                "email": "registered@example.com",
+                "contact": "555",
+                "password": "password",
+                "role": "admin",
+            },
+        ).status_code == 302
+    with admin_app.app_context():
+        row = db.query_one(
+            "SELECT role FROM users WHERE email_lookup_hash = ?",
+            (hashlib.sha256(b"registered@example.com").digest(),),
+        )
+    assert row["role"] == "student"
