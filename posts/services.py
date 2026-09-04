@@ -3,7 +3,7 @@
 import sqlite3
 
 from auth.account_service import decrypt_profile_field
-from auth.rbac import can_edit_post
+from auth.rbac import can_access_chat, can_edit_post
 from crypto.ecc_encoding import (
     deserialize_ecc_ciphertext,
     ecc_decrypt_bytes,
@@ -192,6 +192,7 @@ def _display_post(row, viewer, reveal_anonymous: bool = False) -> dict:
         "upvote_count": get_upvote_count(row["id"]),
         "has_upvoted": has_upvoted,
         "can_upvote": viewer["role"] == "student" and row["owner_id"] != viewer["id"] and not has_upvoted,
+        "can_access_chat": can_access_chat(viewer, row),
     }
 
 

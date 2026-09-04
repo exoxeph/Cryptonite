@@ -23,11 +23,13 @@ def create_app(config_object=Config):
 
     from auth.routes import auth_bp
     from admin.routes import admin_bp
+    from chat.routes import chat_bp
     from evidence.routes import evidence_bp
     from posts.routes import posts_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(chat_bp)
     app.register_blueprint(evidence_bp)
     app.register_blueprint(posts_bp)
 

@@ -10,6 +10,9 @@
   <button type="submit">Upvote</button>
 </form>
 {% endif %}
+{% if post.can_access_chat %}
+<a href="{{ url_for('chat.conversation', post_id=post.id) }}">Private chat</a>
+{% endif %}
 {% if can_upload_evidence %}
 <form method="post" action="{{ url_for('evidence.upload_evidence', post_id=post.id) }}" enctype="multipart/form-data">
   <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" required>
