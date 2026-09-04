@@ -863,11 +863,15 @@ chat_messages
 ├── id
 ├── post_id
 ├── sender_id
-├── receiver_id
 ├── ciphertext
 ├── mac
 ├── ecc_key_version
-└── timestamp
+├── hmac_key_version
+└── created_at
+
+Conversation membership is derived from the post: the post owner and Admin
+may access the conversation; everyone else is denied. An Admin response is
+an Admin-authored row in `chat_messages`, not a separate post field.
 
 
 keys
