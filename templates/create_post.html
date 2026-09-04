@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{% if edit %}Edit complaint{% else %}Create complaint{% endif %} - Authority Bridged{% endblock %}
+{% block content %}
+<h1>{% if edit %}Edit complaint{% else %}Create complaint{% endif %}</h1>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<form method="post"{% if edit %} action="{{ url_for('posts.edit_post', post_id=post_id) }}"{% endif %}>
+  <label>Title <input name="title" maxlength="120" value="{{ values.title }}" required></label>
+  <label>Description <textarea name="description" maxlength="500" required>{{ values.description }}</textarea></label>
+  <label><input type="checkbox" name="anonymous"{% if values.anonymous %} checked{% endif %}> Post anonymously</label>
+  <button type="submit">{% if edit %}Update complaint{% else %}Create complaint{% endif %}</button>
+</form>
+{% endblock %}

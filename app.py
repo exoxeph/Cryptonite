@@ -22,8 +22,10 @@ def create_app(config_object=Config):
     db.init_app(app)
 
     from auth.routes import auth_bp
+    from posts.routes import posts_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(posts_bp)
 
     @app.get("/health")
     def health():
