@@ -8,6 +8,7 @@ from crypto.ecc_curve import G, P, Point, is_on_curve, scalar_multiply
 
 _BYTE_TO_POINT = {value: scalar_multiply(value + 1, G) for value in range(256)}
 _POINT_TO_BYTE = {point: value for value, point in _BYTE_TO_POINT.items()}
+MAX_ECC_ENCRYPT_RETRIES = 64
 if len(_POINT_TO_BYTE) != 256 or any(point is None for point in _BYTE_TO_POINT.values()):
     raise RuntimeError("configured ECC generator cannot represent all byte values")
 
@@ -32,11 +33,13 @@ def ecc_encrypt_bytes(data: bytes, public_key: Point) -> list[tuple[Point, Point
         raise TypeError("ECC byte encryption requires bytes")
     ciphertext = []
     for value in data:
-        while True:
+        for _ in range(MAX_ECC_ENCRYPT_RETRIES):
             c1, c2 = ecc_encrypt_point(byte_to_point(value), public_key)
             if c1 is not None and c2 is not None:
                 ciphertext.append((c1, c2))
                 break
+        else:
+            raise ValueError("ECC encryption failed after repeated retries")
     return ciphertext
 
 

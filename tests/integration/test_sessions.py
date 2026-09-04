@@ -83,7 +83,10 @@ def test_tampered_cookie_parts_are_rejected(session_app, part):
     with session_app.test_client() as client:
         _, _, cookie_value = _authenticate(client, session_app)
         parts = cookie_value.split(".")
-        parts[part] = ("x" if part != 2 else "0") + parts[part][1:]
+        parts[part] = (
+            ("x" if part != 2 else ("0" if parts[part][0] != "0" else "1"))
+            + parts[part][1:]
+        )
         client.set_cookie(session_app.config["AUTH_SESSION_COOKIE_NAME"], ".".join(parts))
         assert client.get("/dashboard").status_code == 302
 

@@ -86,3 +86,17 @@ def test_infinity_c2_retries_with_fresh_encryption(ecc_keys, monkeypatch):
     ciphertext = ecc_encoding.ecc_encrypt_bytes(b"x", ecc_keys["public"])
     assert calls == 2
     assert ecc_encoding.ecc_decrypt_bytes(ciphertext, ecc_keys["private"]) == b"x"
+
+
+def test_infinity_c2_retry_limit_is_bounded(ecc_keys, monkeypatch):
+    calls = 0
+
+    def always_infinity(_m_point, _public_key):
+        nonlocal calls
+        calls += 1
+        return G, None
+
+    monkeypatch.setattr(ecc_encoding, "ecc_encrypt_point", always_infinity)
+    with pytest.raises(ValueError, match="repeated retries"):
+        ecc_encoding.ecc_encrypt_bytes(b"x", ecc_keys["public"])
+    assert calls == ecc_encoding.MAX_ECC_ENCRYPT_RETRIES
