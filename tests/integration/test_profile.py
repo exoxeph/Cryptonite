@@ -7,6 +7,7 @@ from auth import otp
 from auth.account_service import create_user, find_user_by_email
 from crypto import key_manager
 from database import db
+from services import email_service
 
 
 class ProfileConfig:
@@ -192,3 +193,53 @@ def test_email_lookup_changes_with_profile_email(profile_app):
     with profile_app.app_context():
         assert find_user_by_email("new@example.com")["id"] == user_id
         assert find_user_by_email("alice@example.com") is None
+
+
+def test_profile_email_update_supports_end_to_end_login(profile_app, monkeypatch):
+    user_id = _create_user(profile_app, "old@example.com")
+    sent = []
+    with profile_app.test_client() as client:
+        _authenticate(client, profile_app, user_id)
+        assert client.post(
+            "/profile",
+            data={"name": "Alice", "email": "new@example.com", "contact": "111"},
+        ).status_code == 302
+        with profile_app.app_context():
+            row = _row(profile_app, user_id)
+            assert row["email_lookup_hash"] == hashlib.sha256(b"new@example.com").digest()
+            assert row["encrypted_email"] != b"new@example.com"
+            assert row["profile_key_version"] == key_manager.get_active_key("RSA_PROFILE")["version"]
+
+        with profile_app.app_context():
+            otp_count_before_old_login = db.query_one("SELECT COUNT(*) AS count FROM otp_codes")["count"]
+        old_login = client.post("/login", data={"email": "old@example.com", "password": "password"})
+        assert old_login.status_code == 200
+        assert b"Invalid email or password." in old_login.data
+        with profile_app.app_context():
+            assert db.query_one("SELECT COUNT(*) AS count FROM otp_codes")["count"] == otp_count_before_old_login
+
+        monkeypatch.setattr(email_service, "send_otp_email", lambda address, code: sent.append((address, code)))
+        new_login = client.post("/login", data={"email": " NEW@EXAMPLE.COM ", "password": "password"})
+        assert new_login.status_code == 302
+        assert new_login.location.endswith("/verify-otp")
+        assert sent and sent[-1][0] == "new@example.com"
+        assert client.post("/verify-otp", data={"otp": sent[-1][1]}).status_code == 302
+
+
+def test_duplicate_email_update_preserves_original_login(profile_app, monkeypatch):
+    alice_id = _create_user(profile_app, "alice@example.com")
+    _create_user(profile_app, "bob@example.com", "Bob", "222")
+    before = _row(profile_app, alice_id)
+    sent = []
+    with profile_app.test_client() as client:
+        _authenticate(client, profile_app, alice_id)
+        response = client.post("/profile", data={"name": "Changed", "email": "bob@example.com", "contact": "333"})
+        assert response.status_code == 200
+        after = _row(profile_app, alice_id)
+        assert tuple(after[field] for field in ("encrypted_name", "encrypted_email", "encrypted_contact", "email_lookup_hash", "profile_key_version")) == tuple(
+            before[field] for field in ("encrypted_name", "encrypted_email", "encrypted_contact", "email_lookup_hash", "profile_key_version")
+        )
+        monkeypatch.setattr(email_service, "send_otp_email", lambda address, code: sent.append((address, code)))
+        original_login = client.post("/login", data={"email": " ALICE@EXAMPLE.COM ", "password": "password"})
+        assert original_login.status_code == 302
+        assert sent and sent[-1][0] == "alice@example.com"
