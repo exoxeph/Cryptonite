@@ -8,6 +8,7 @@ def test_app_factory_returns_app():
     assert app.config["RSA_KEY_BITS"] == 2048
     assert app.config["SESSION_COOKIE_SECURE"] is False
     assert app.config["MAX_EVIDENCE_SIZE_BYTES"] == 200 * 1024
+    assert "bootstrap-keys" in app.cli.commands
 
 
 def test_health_endpoint_returns_ok():

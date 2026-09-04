@@ -5,6 +5,11 @@ private material is serialized explicitly, wrapped with the root RSA public key,
 and stored as ciphertext. The root private key remains outside SQLite in the
 decimal ``ROOT_RSA_N/E/D`` configuration values; production systems would use a
 secret manager, KMS, or HSM instead of this educational local arrangement.
+
+Unlike the otherwise pure ``crypto/*`` modules, this infrastructure module is
+the intentional configuration/database exception described by the plan: it
+uses Flask's application configuration and the generic database connection to
+coordinate key storage, but contains no route or UI logic.
 """
 
 import base64
