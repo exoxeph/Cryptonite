@@ -58,7 +58,7 @@ def store_evidence(post_id: int, owner_id: int, filename: str, file_bytes: bytes
             evidence_path.write_bytes(encrypted_bytes)
             connection.execute(
                 "UPDATE evidence SET file_path = ? WHERE id = ?",
-                (evidence_path.relative_to(Path(current_app.root_path)).as_posix(), evidence_id),
+                (f"encrypted_uploads/evidence_{evidence_id}.enc", evidence_id),
             )
         return evidence_id
     except Exception:
@@ -81,7 +81,7 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
 
     key = get_key_by_version("RSA_EVIDENCE", row["rsa_key_version"])
     try:
-        ciphertext = _deserialize_ciphertext(Path(current_app.root_path, row["file_path"]).read_bytes())
+        ciphertext = _deserialize_ciphertext(_evidence_path(row["id"]).read_bytes())
         file_bytes = rsa_decrypt_bytes(ciphertext, key["private_key"])
         filename_ciphertext = _deserialize_ciphertext(row["encrypted_filename"])
         filename = rsa_decrypt_bytes(filename_ciphertext, key["private_key"]).decode("utf-8")
@@ -113,7 +113,17 @@ def _validate_upload(filename: str, mimetype: str, file_bytes: bytes) -> None:
 
 
 def _evidence_path(evidence_id: int) -> Path:
-    return Path(current_app.root_path) / "encrypted_uploads" / f"evidence_{evidence_id}.enc"
+    upload_dir = Path(current_app.config.get("EVIDENCE_UPLOAD_DIR", Path(current_app.root_path) / "encrypted_uploads"))
+    return upload_dir / f"evidence_{evidence_id}.enc"
+
+
+def safe_download_name(filename: str) -> str:
+    cleaned = "".join(
+        "_" if character in {"/", "\\"} else character
+        for character in filename
+        if 32 <= ord(character) != 127
+    )
+    return cleaned or "evidence"
 
 
 def _serialize_ciphertext(blocks: list[int]) -> bytes:

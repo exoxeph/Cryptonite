@@ -9,6 +9,7 @@ from auth import otp
 from auth.account_service import create_user
 from crypto import key_manager
 from database import db
+from evidence.services import store_evidence
 
 
 class EvidenceConfig:
@@ -31,6 +32,7 @@ class EvidenceConfig:
 def evidence_app(tmp_path):
     root = key_manager.rsa_generate_keypair(1024)
     EvidenceConfig.DATABASE_PATH = str(tmp_path / "evidence.db")
+    EvidenceConfig.EVIDENCE_UPLOAD_DIR = str(tmp_path / "encrypted_uploads")
     EvidenceConfig.ROOT_RSA_E, EvidenceConfig.ROOT_RSA_N = map(str, root["public"])
     EvidenceConfig.ROOT_RSA_D = str(root["private"][0])
     app = create_app(EvidenceConfig)
@@ -214,7 +216,7 @@ def test_stored_file_is_not_plaintext(evidence_app):
         _authenticate(client, evidence_app, owner)
         post_id = _post(client)
         _upload(client, post_id, content=original)
-    stored = Path(evidence_app.root_path, "encrypted_uploads", "evidence_1.enc").read_bytes()
+    stored = Path(evidence_app.config["EVIDENCE_UPLOAD_DIR"], "evidence_1.enc").read_bytes()
     assert stored != original
     assert not stored.startswith(b"%PDF")
     assert json.loads(stored.decode("utf-8")) != list(original)
@@ -227,7 +229,7 @@ def test_view_does_not_leave_plaintext_on_disk(evidence_app):
         post_id = _post(client)
         _upload(client, post_id)
         client.get("/evidence/1")
-    files = list((Path(evidence_app.root_path) / "encrypted_uploads").iterdir())
+    files = list(Path(evidence_app.config["EVIDENCE_UPLOAD_DIR"]).iterdir())
     assert files and all(path.suffix == ".enc" for path in files)
 
 
@@ -275,7 +277,20 @@ def test_path_traversal_filename_not_used_for_storage(evidence_app):
         response = _upload(client, post_id, filename="../../secret.pdf")
     assert response.status_code == 302
     assert not (Path(evidence_app.root_path).parent / "secret.pdf").exists()
-    assert list((Path(evidence_app.root_path) / "encrypted_uploads").glob("*.enc"))
+    assert list(Path(evidence_app.config["EVIDENCE_UPLOAD_DIR"]).glob("*.enc"))
+
+
+def test_control_characters_are_removed_from_download_header(evidence_app):
+    owner = _user(evidence_app, "owner@example.com")
+    with evidence_app.test_client() as client:
+        _authenticate(client, evidence_app, owner)
+        post_id = _post(client)
+        with evidence_app.app_context():
+            store_evidence(post_id, owner, "report\r\nX-Injected: yes.pdf", b"%PDF", "application/pdf")
+        response = client.get("/evidence/1")
+    assert response.status_code == 200
+    assert "\r" not in response.headers["Content-Disposition"]
+    assert "\n" not in response.headers["Content-Disposition"]
 
 
 def test_historical_evidence_decrypts_after_rsa_evidence_rotation(evidence_app):

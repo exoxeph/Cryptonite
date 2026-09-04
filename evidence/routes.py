@@ -10,6 +10,7 @@ from evidence.services import (
     EvidenceNotFoundError,
     EvidenceValidationError,
     read_evidence,
+    safe_download_name,
     store_evidence,
 )
 from database import db
@@ -58,5 +59,5 @@ def get_evidence(evidence_id):
         BytesIO(file_bytes),
         mimetype=mimetype,
         as_attachment=True,
-        download_name=filename,
+        download_name=safe_download_name(filename),
     )
