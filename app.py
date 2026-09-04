@@ -8,6 +8,17 @@ from database import db
 def create_app(config_object=Config):
     app = Flask(__name__)
     app.config.from_object(config_object)
+    secret_key = app.config.get("SECRET_KEY")
+    known_placeholders = {
+        "replace-with-a-strong-random-secret-at-least-32-characters",
+        "replace-with-dev-secret",
+    }
+    if (
+        not isinstance(secret_key, str)
+        or len(secret_key) < 32
+        or secret_key.strip() in known_placeholders
+    ):
+        raise RuntimeError("SECRET_KEY must be a generated random value of at least 32 characters")
     db.init_app(app)
 
     from auth.routes import auth_bp

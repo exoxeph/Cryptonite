@@ -11,9 +11,14 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 pytest
 flask --app app:create_app run
 ```
+
+Put the generated value in `.env` as `SECRET_KEY`. Do not use the example
+placeholder or commit `.env`; the application rejects known placeholders and
+requires a generated value at least 32 characters long.
 
 After placing a locally generated 2048-bit root RSA key in `.env` as the decimal
 `ROOT_RSA_N`, `ROOT_RSA_E`, and `ROOT_RSA_D` values, initialize the operational

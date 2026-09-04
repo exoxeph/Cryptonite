@@ -14,7 +14,7 @@ from services import email_service
 
 class AuthConfig:
     TESTING = True
-    SECRET_KEY = "test"
+    SECRET_KEY = "test-only-secret-for-auth-flow-123456789"
     DATABASE_PATH = ""
     RSA_KEY_BITS = 1024
     ROOT_RSA_N = ""

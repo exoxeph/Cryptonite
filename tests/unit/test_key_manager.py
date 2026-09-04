@@ -10,7 +10,7 @@ from database import db
 
 class KeyManagerConfig:
     TESTING = True
-    SECRET_KEY = "test"
+    SECRET_KEY = "test-only-secret-for-key-manager-123456"
     DATABASE_PATH = ""
     RSA_KEY_BITS = 1024
     ROOT_RSA_N = ""

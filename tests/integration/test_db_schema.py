@@ -8,7 +8,7 @@ from database import db
 
 class TestConfig:
     TESTING = True
-    SECRET_KEY = "test-secret"
+    SECRET_KEY = "test-only-secret-for-db-schema-123456789"
     DATABASE_PATH = ""
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
