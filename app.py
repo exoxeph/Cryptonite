@@ -10,6 +10,10 @@ def create_app(config_object=Config):
     app.config.from_object(config_object)
     db.init_app(app)
 
+    from auth.routes import auth_bp
+
+    app.register_blueprint(auth_bp)
+
     @app.get("/health")
     def health():
         return jsonify(status="ok"), 200
@@ -22,6 +26,21 @@ def create_app(config_object=Config):
         db.init_db()
         bootstrap_keys()
         click.echo("Operational keys bootstrapped.")
+
+    @app.cli.command("seed-admin")
+    @click.option("--name", prompt=True)
+    @click.option("--email", prompt=True)
+    @click.option("--contact", prompt=True)
+    @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+    def seed_admin_command(name, email, contact, password):
+        """Create one controlled local Admin account with supplied credentials."""
+        from auth.account_service import create_user
+        from crypto.key_manager import bootstrap_keys
+
+        db.init_db()
+        bootstrap_keys()
+        create_user(name, email, contact, password, role="admin")
+        click.echo("Admin account created.")
 
     return app
 
