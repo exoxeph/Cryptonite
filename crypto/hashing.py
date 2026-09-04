@@ -30,7 +30,9 @@ def verify_password(password: str, salt: bytes, expected_hash: bytes) -> bool:
         raise TypeError("expected_hash must be bytes")
     if len(expected_hash) != hashlib.sha256().digest_size:
         return False
-    return hashlib.sha256(salt + password.encode("utf-8")).digest() == expected_hash
+    return secrets.compare_digest(
+        hashlib.sha256(salt + password.encode("utf-8")).digest(), expected_hash
+    )
 
 
 def _require_password(password: str) -> None:

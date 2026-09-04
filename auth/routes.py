@@ -1,7 +1,5 @@
 """Public account registration routes for Phase 6."""
 
-import sqlite3
-
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from auth.account_service import create_user
@@ -21,7 +19,7 @@ def register():
         else:
             try:
                 create_user(**fields, role="student")
-            except (ValueError, TypeError, sqlite3.Error):
+            except (ValueError, TypeError):
                 error = "Registration could not be completed. Please check your information."
             else:
                 return redirect(url_for("auth.register_success"))
