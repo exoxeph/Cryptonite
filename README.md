@@ -34,6 +34,24 @@ commit `.env` or print the private exponent in shared evidence. The bootstrap
 command initializes SQLite and creates one active key for each configured
 purpose; repeated runs are idempotent.
 
+## Testing
+
+Run the full suite with:
+
+```powershell
+python -m pytest --maxfail=1 -q
+```
+
+For an informational coverage report:
+
+```powershell
+python -m pytest --cov=crypto --cov=auth --cov=posts --cov=evidence --cov=chat --cov=admin --cov-report=term-missing -q
+```
+
+Tests use temporary SQLite databases and evidence directories. OTP email
+delivery is mocked; the test suite does not require provider credentials or
+make external email calls.
+
 ## Health Check
 
 ```text
