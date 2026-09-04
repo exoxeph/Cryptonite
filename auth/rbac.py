@@ -15,3 +15,9 @@ def can_create_post(user) -> bool:
 
 def can_edit_post(user, post) -> bool:
     return user is not None and is_owner(user, post["owner_id"])
+
+
+def can_view_evidence(user, evidence_or_post) -> bool:
+    return user is not None and (
+        is_admin(user) or is_owner(user, evidence_or_post["owner_id"])
+    )

@@ -4,6 +4,7 @@ from flask import Blueprint, g, redirect, render_template, request, url_for
 
 from auth.decorators import login_required
 from auth.rbac import can_create_post
+from evidence.services import list_evidence
 from posts.services import (
     create_post,
     get_editable_post,
@@ -38,7 +39,12 @@ def post_detail(post_id):
         return "Post could not be loaded.", 500
     if post is None:
         return "Post not found.", 404
-    return render_template("post_detail.html", post=post)
+    return render_template(
+        "post_detail.html",
+        post=post,
+        evidence=list_evidence(post_id, g.current_user),
+        can_upload_evidence=g.current_user["id"] == post.get("owner_id", g.current_user["id"]),
+    )
 
 
 @posts_bp.post("/posts/<int:post_id>/upvote")

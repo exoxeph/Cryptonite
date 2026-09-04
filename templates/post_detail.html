@@ -10,5 +10,14 @@
   <button type="submit">Upvote</button>
 </form>
 {% endif %}
+{% if can_upload_evidence %}
+<form method="post" action="{{ url_for('evidence.upload_evidence', post_id=post.id) }}" enctype="multipart/form-data">
+  <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" required>
+  <button type="submit">Upload evidence</button>
+</form>
+{% endif %}
+{% for item in evidence %}
+<a href="{{ url_for('evidence.get_evidence', evidence_id=item.id) }}">View evidence {{ item.id }}</a>
+{% endfor %}
 <a href="{{ url_for('posts.post_list') }}">Back to complaints</a>
 {% endblock %}

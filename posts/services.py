@@ -141,6 +141,7 @@ def _display_post(row, viewer) -> dict:
     has_upvoted = has_user_upvoted(viewer["id"], row["id"])
     return {
         "id": row["id"],
+        "owner_id": row["owner_id"],
         "title": values["title"],
         "description": values["description"],
         "display_owner": display_owner,
