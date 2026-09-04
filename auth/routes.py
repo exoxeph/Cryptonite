@@ -1,9 +1,16 @@
 """Public account registration routes for Phase 6."""
 
-from flask import Blueprint, current_app, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, g, redirect, render_template, request, session, url_for
 
 from auth.account_service import create_user
-from auth.account_service import decrypt_profile_field, find_user_by_email, get_user_by_id, normalize_email
+from auth.account_service import (
+    decrypt_profile_field,
+    find_user_by_email,
+    get_profile,
+    get_user_by_id,
+    normalize_email,
+    update_profile,
+)
 from auth.decorators import login_required
 from auth import otp
 from auth import sessions as auth_sessions
@@ -108,3 +115,27 @@ def logout():
     auth_sessions.invalidate_session(request.cookies.get(current_app.config["AUTH_SESSION_COOKIE_NAME"]))
     response = redirect(url_for("auth.login"))
     return auth_sessions.clear_session_cookie(response)
+
+
+@auth_bp.route("/profile", methods=("GET", "POST"))
+@login_required
+def profile():
+    """View or update only the profile belonging to the authenticated user."""
+    error = None
+    if request.method == "POST":
+        try:
+            update_profile(
+                g.current_user["id"],
+                request.form.get("name", ""),
+                request.form.get("email", ""),
+                request.form.get("contact", ""),
+            )
+        except (TypeError, ValueError):
+            error = "Profile could not be updated. Please check your information."
+        else:
+            return redirect(url_for("auth.profile"))
+    try:
+        values = get_profile(g.current_user["id"])
+    except (KeyError, TypeError, ValueError):
+        return render_template("profile.html", profile=None, error="Profile could not be loaded."), 500
+    return render_template("profile.html", profile=values, error=error)

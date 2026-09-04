@@ -5,7 +5,8 @@ import json
 import sqlite3
 
 from crypto.hashing import generate_salt, hash_password
-from crypto.key_manager import get_active_key
+from crypto.key_manager import get_active_key, get_key_by_version
+from database.db import get_db
 from crypto.rsa import rsa_decrypt_bytes, rsa_encrypt_bytes
 from database import db
 
@@ -74,6 +75,50 @@ def decrypt_profile_field(serialized: bytes, private_key) -> str:
         return plaintext.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("profile field is not valid UTF-8") from exc
+
+
+def get_profile(user_id: int) -> dict:
+    """Decrypt one user's profile using the key version recorded on that row."""
+    row = get_user_by_id(user_id)
+    if row is None:
+        raise ValueError("user does not exist")
+    profile_key = get_key_by_version("RSA_PROFILE", row["profile_key_version"])
+    return {
+        "name": decrypt_profile_field(row["encrypted_name"], profile_key["private_key"]),
+        "email": decrypt_profile_field(row["encrypted_email"], profile_key["private_key"]),
+        "contact": decrypt_profile_field(row["encrypted_contact"], profile_key["private_key"]),
+    }
+
+
+def update_profile(user_id: int, name: str, email: str, contact: str) -> None:
+    """Encrypt and atomically replace all profile fields under one active key."""
+    for value, field in ((name, "name"), (contact, "contact")):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} is required")
+    normalized_email = normalize_email(email)
+    profile_key = get_active_key("RSA_PROFILE")
+    encrypted_values = (
+        encrypt_profile_field(name.strip(), profile_key["public_key"]),
+        encrypt_profile_field(normalized_email, profile_key["public_key"]),
+        encrypt_profile_field(contact.strip(), profile_key["public_key"]),
+        email_lookup_hash(normalized_email),
+        profile_key["version"],
+        user_id,
+    )
+    try:
+        connection = get_db()
+        with connection:
+            cursor = connection.execute(
+                """UPDATE users
+                   SET encrypted_name = ?, encrypted_email = ?, encrypted_contact = ?,
+                       email_lookup_hash = ?, profile_key_version = ?
+                   WHERE id = ?""",
+                encrypted_values,
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("user does not exist")
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("email address is already registered") from exc
 
 
 def create_user(name: str, email: str, contact: str, password: str, role: str = "student") -> int:
