@@ -200,6 +200,36 @@ def test_same_status_transition_rejected(admin_app):
         assert client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Pending"}).status_code == 400
 
 
+def test_acknowledged_to_pending_transition_rejected(admin_app):
+    owner = _user(admin_app, "owner@example.com")
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client)
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        client.post(f"/admin/posts/{post_id}/acknowledge")
+        response = client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Pending"})
+    assert response.status_code == 400
+    assert _status(admin_app, post_id)["status"] == "Acknowledged"
+
+
+@pytest.mark.parametrize("new_status", ["Acknowledged", "Resolved"])
+def test_same_status_transition_rejected_for_each_non_pending_state(admin_app, new_status):
+    owner = _user(admin_app, "owner@example.com")
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client)
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        client.post(f"/admin/posts/{post_id}/acknowledge")
+        if new_status == "Resolved":
+            client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Resolved"})
+        response = client.post(f"/admin/posts/{post_id}/status", data={"new_status": new_status})
+    assert response.status_code == 400
+
+
 def test_status_change_updates_updated_at(admin_app):
     owner = _user(admin_app, "owner@example.com")
     admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
