@@ -189,6 +189,34 @@ def test_tampered_ciphertext_detected(chat_app, monkeypatch):
     assert "plaintext" not in messages[0]
 
 
+def test_full_tamper_detection_demo_flow(chat_app):
+    owner = _user(chat_app, "owner@example.com", name="Owner")
+    admin = _user(chat_app, "admin@example.com", role="admin", name="Admin")
+    plaintext = "Please review this complaint."
+
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        post_id = _post(client)
+        assert client.post(f"/posts/{post_id}/chat", data={"message": plaintext}).status_code == 302
+
+    with chat_app.app_context():
+        normal = get_conversation(post_id, {"id": admin, "role": "admin"})
+        assert normal[0]["integrity_ok"] is True
+        assert normal[0]["plaintext"] == plaintext
+        assert "warning" not in normal[0]
+
+        row = db.query_one("SELECT id, ciphertext FROM chat_messages WHERE post_id = ?", (post_id,))
+        tampered_ciphertext = "tampered"
+        assert tampered_ciphertext != row["ciphertext"]
+        db.execute("UPDATE chat_messages SET ciphertext = ? WHERE id = ?", (tampered_ciphertext, row["id"]))
+
+        tampered = get_conversation(post_id, {"id": admin, "role": "admin"})
+
+    assert tampered[0]["integrity_ok"] is False
+    assert tampered[0]["warning"] == INTEGRITY_WARNING
+    assert "plaintext" not in tampered[0]
+
+
 def test_tampered_mac_detected(chat_app):
     owner = _user(chat_app, "owner@example.com")
     with chat_app.test_client() as client:
