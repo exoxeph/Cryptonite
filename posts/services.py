@@ -19,6 +19,14 @@ MAX_TITLE_LENGTH = 120
 MAX_DESCRIPTION_LENGTH = 500
 
 
+class PostNotFoundError(ValueError):
+    """Raised when a requested post does not exist."""
+
+
+class UpvoteAlreadyExistsError(ValueError):
+    """Raised when the database uniqueness rule rejects a duplicate upvote."""
+
+
 def create_post(owner_id: int, title: str, description: str, anonymous: bool) -> int:
     title, description = _validate_content(title, description)
     active_key = get_active_key("ECC_POSTS")
@@ -88,6 +96,38 @@ def update_post(post_id: int, editor_id: int, title: str, description: str, anon
         raise ValueError("post update failed") from exc
 
 
+def upvote_post(user_id: int, post_id: int) -> None:
+    """Insert one student upvote; the database uniqueness constraint is authoritative."""
+    post = _get_post(post_id)
+    if post is None:
+        raise PostNotFoundError("post does not exist")
+    user = db.query_one("SELECT id, role FROM users WHERE id = ?", (user_id,))
+    if user is None or user["role"] != "student":
+        raise PermissionError("student upvote required")
+    if post["owner_id"] == user_id:
+        raise PermissionError("post owner cannot upvote")
+    try:
+        db.execute("INSERT INTO upvotes (user_id, post_id) VALUES (?, ?)", (user_id, post_id))
+    except sqlite3.IntegrityError as exc:
+        if "UNIQUE constraint failed: upvotes.user_id, upvotes.post_id" not in str(exc):
+            raise
+        raise UpvoteAlreadyExistsError("upvote already exists") from exc
+
+
+def get_upvote_count(post_id: int) -> int:
+    """Return the authoritative number of upvote rows for a post."""
+    row = db.query_one("SELECT COUNT(*) AS count FROM upvotes WHERE post_id = ?", (post_id,))
+    return row["count"]
+
+
+def has_user_upvoted(user_id: int, post_id: int) -> bool:
+    """Check existence of one user's upvote without trusting browser state."""
+    return db.query_one(
+        "SELECT 1 AS present FROM upvotes WHERE user_id = ? AND post_id = ?",
+        (user_id, post_id),
+    ) is not None
+
+
 def _display_post(row, viewer) -> dict:
     values = _decrypt_post_fields(row)
     if row["anonymous"]:
@@ -98,6 +138,7 @@ def _display_post(row, viewer) -> dict:
             raise ValueError("post owner does not exist")
         owner_key = get_key_by_version("RSA_PROFILE", owner["profile_key_version"])
         display_owner = decrypt_profile_field(owner["encrypted_name"], owner_key["private_key"])
+    has_upvoted = has_user_upvoted(viewer["id"], row["id"])
     return {
         "id": row["id"],
         "title": values["title"],
@@ -107,6 +148,9 @@ def _display_post(row, viewer) -> dict:
         "status": row["status"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "upvote_count": get_upvote_count(row["id"]),
+        "has_upvoted": has_upvoted,
+        "can_upvote": viewer["role"] == "student" and row["owner_id"] != viewer["id"] and not has_upvoted,
     }
 
 

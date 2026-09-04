@@ -4,5 +4,11 @@
 <h1>{{ post.title }}</h1>
 <p>{{ post.description }}</p>
 <p>{{ post.display_owner }} | {{ post.status }}</p>
+<p>Upvotes: {{ post.upvote_count }}</p>
+{% if post.can_upvote %}
+<form method="post" action="{{ url_for('posts.upvote', post_id=post.id) }}">
+  <button type="submit">Upvote</button>
+</form>
+{% endif %}
 <a href="{{ url_for('posts.post_list') }}">Back to complaints</a>
 {% endblock %}

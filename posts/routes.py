@@ -9,6 +9,9 @@ from posts.services import (
     get_editable_post,
     get_post_for_display,
     list_public_posts,
+    PostNotFoundError,
+    UpvoteAlreadyExistsError,
+    upvote_post,
     update_post,
 )
 
@@ -36,6 +39,20 @@ def post_detail(post_id):
     if post is None:
         return "Post not found.", 404
     return render_template("post_detail.html", post=post)
+
+
+@posts_bp.post("/posts/<int:post_id>/upvote")
+@login_required
+def upvote(post_id):
+    try:
+        upvote_post(g.current_user["id"], post_id)
+    except PostNotFoundError:
+        return "Post not found.", 404
+    except UpvoteAlreadyExistsError:
+        return "You have already upvoted this complaint.", 409
+    except PermissionError:
+        return "You are not allowed to upvote this complaint.", 403
+    return redirect(url_for("posts.post_detail", post_id=post_id))
 
 
 @posts_bp.route("/posts/new", methods=("GET", "POST"))
