@@ -60,13 +60,20 @@ def verify_otp(user_id: int, submitted_code: str) -> bool:
 
 def invalidate_latest_otp(user_id: int) -> None:
     """Invalidate the latest OTP issuance so failed delivery cannot be used."""
+    row = db.query_one(
+        "SELECT id FROM otp_codes WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)
+    )
+    if row is not None:
+        invalidate_otp(row["id"])
+
+
+def invalidate_otp(otp_id: int) -> None:
+    """Invalidate one exact OTP issuance, used when delivery of that issuance fails."""
+    if not isinstance(otp_id, int) or otp_id <= 0:
+        raise ValueError("otp_id must be a positive integer")
     connection = db.get_db()
     with connection:
-        connection.execute(
-            "UPDATE otp_codes SET used = 1 WHERE id = ("
-            "SELECT id FROM otp_codes WHERE user_id = ? ORDER BY id DESC LIMIT 1)",
-            (user_id,),
-        )
+        connection.execute("UPDATE otp_codes SET used = 1 WHERE id = ?", (otp_id,))
 
 
 def _utc_now() -> datetime:

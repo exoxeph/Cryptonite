@@ -163,6 +163,27 @@ def test_email_failure_invalidates_otp_and_pending_state(auth_app, monkeypatch):
         assert not otp.verify_otp(1, "000000")
 
 
+def test_failed_older_delivery_does_not_invalidate_newer_otp(auth_app, monkeypatch):
+    sent = []
+    attempts = 0
+
+    def deliver(_address, code):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise email_service.EmailDeliveryError()
+        sent.append(code)
+
+    with auth_app.test_client() as client:
+        _register(client)
+        monkeypatch.setattr(email_service, "send_otp_email", deliver)
+        first = client.post("/login", data={"email": "user@example.com", "password": "secret"})
+        second = client.post("/login", data={"email": "user@example.com", "password": "secret"})
+        assert first.status_code == 200
+        assert second.status_code == 302
+        assert sent and client.post("/verify-otp", data={"otp": sent[0]}).status_code == 200
+
+
 def test_verify_route_requires_pending_auth_and_hands_off_without_session(auth_app, monkeypatch):
     with auth_app.test_client() as client:
         assert client.get("/verify-otp").status_code == 302

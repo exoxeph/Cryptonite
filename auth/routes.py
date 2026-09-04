@@ -57,13 +57,13 @@ def login():
             error = "Invalid email or password."
         else:
             code = otp.generate_otp()
-            otp.store_otp(row["id"], code)
+            otp_id = otp.store_otp(row["id"], code)
             try:
                 profile_key = get_key_by_version("RSA_PROFILE", row["profile_key_version"])
                 recipient = decrypt_profile_field(row["encrypted_email"], profile_key["private_key"])
                 email_service.send_otp_email(recipient, code)
             except (ValueError, KeyError, email_service.EmailDeliveryError):
-                otp.invalidate_latest_otp(row["id"])
+                otp.invalidate_otp(otp_id)
                 session.pop("pending_auth_user_id", None)
                 error = "Verification code could not be sent. Please try again."
             else:
