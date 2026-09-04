@@ -17,6 +17,11 @@ from database.db import get_db
 
 MAX_TITLE_LENGTH = 120
 MAX_DESCRIPTION_LENGTH = 500
+VALID_STATUSES = {"Pending", "Acknowledged", "Resolved"}
+STATUS_TRANSITIONS = {
+    "Pending": "Acknowledged",
+    "Acknowledged": "Resolved",
+}
 
 
 class PostNotFoundError(ValueError):
@@ -128,9 +133,44 @@ def has_user_upvoted(user_id: int, post_id: int) -> bool:
     ) is not None
 
 
-def _display_post(row, viewer) -> dict:
+def change_status(post_id: int, new_status: str, actor) -> None:
+    row = _get_post(post_id)
+    if row is None:
+        raise PostNotFoundError("post does not exist")
+    if actor is None or actor["role"] != "admin":
+        raise PermissionError("Admin role required")
+    if new_status not in VALID_STATUSES:
+        raise ValueError("invalid status")
+    if STATUS_TRANSITIONS.get(row["status"]) != new_status:
+        raise ValueError("invalid status transition")
+    connection = get_db()
+    with connection:
+        connection.execute(
+            "UPDATE posts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_status, post_id),
+        )
+
+
+def acknowledge_post(post_id: int, actor) -> None:
+    change_status(post_id, "Acknowledged", actor)
+
+
+def list_admin_posts(viewer) -> list[dict]:
+    _require_admin(viewer)
+    return [_display_post(row, viewer, reveal_anonymous=True) for row in db.query_all("SELECT * FROM posts ORDER BY id DESC")]
+
+
+def get_admin_post_for_display(post_id: int, viewer) -> dict | None:
+    _require_admin(viewer)
+    row = _get_post(post_id)
+    if row is None:
+        return None
+    return _display_post(row, viewer, reveal_anonymous=True)
+
+
+def _display_post(row, viewer, reveal_anonymous: bool = False) -> dict:
     values = _decrypt_post_fields(row)
-    if row["anonymous"]:
+    if row["anonymous"] and not reveal_anonymous:
         display_owner = "Anonymous Student"
     else:
         owner = db.query_one("SELECT * FROM users WHERE id = ?", (row["owner_id"],))
@@ -182,3 +222,8 @@ def _get_post(post_id: int):
 def _require_viewer(viewer) -> None:
     if viewer is None or viewer["role"] not in {"student", "admin"}:
         raise PermissionError("authenticated viewer required")
+
+
+def _require_admin(viewer) -> None:
+    if viewer is None or viewer["role"] != "admin":
+        raise PermissionError("Admin role required")

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Admin complaints - Authority Bridged{% endblock %}
+{% block content %}
+<h1>Complaints</h1>
+{% for post in posts %}
+<article>
+  <h2><a href="{{ url_for('admin.post_detail', post_id=post.id) }}">{{ post.title }}</a></h2>
+  <p>{{ post.display_owner }} | {{ post.status }}</p>
+  <p>{{ post.description }}</p>
+</article>
+{% else %}
+<p>No complaints.</p>
+{% endfor %}
+{% endblock %}

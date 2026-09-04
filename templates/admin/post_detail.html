@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Admin complaint - Authority Bridged{% endblock %}
+{% block content %}
+<h1>{{ post.title }}</h1>
+<p>{{ post.description }}</p>
+<p>Owner: {{ post.display_owner }}</p>
+<p>Anonymous: {{ "Yes" if post.anonymous else "No" }}</p>
+<p>Status: {{ post.status }}</p>
+<p>Created: {{ post.created_at }}</p>
+<p>Updated: {{ post.updated_at }}</p>
+{% if post.status == "Pending" %}
+<form method="post" action="{{ url_for('admin.acknowledge', post_id=post.id) }}">
+  <button type="submit">Acknowledge</button>
+</form>
+{% elif post.status == "Acknowledged" %}
+<form method="post" action="{{ url_for('admin.update_status', post_id=post.id) }}">
+  <input type="hidden" name="new_status" value="Resolved">
+  <button type="submit">Mark Resolved</button>
+</form>
+{% endif %}
+{% for item in evidence %}
+<a href="{{ url_for('evidence.get_evidence', evidence_id=item.id) }}">View evidence {{ item.id }}</a>
+{% endfor %}
+<a href="{{ url_for('admin.posts') }}">Back to complaints</a>
+{% endblock %}
