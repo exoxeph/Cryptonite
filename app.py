@@ -1,11 +1,13 @@
 from flask import Flask, jsonify
 
 from config import Config
+from database import db
 
 
 def create_app(config_object=Config):
     app = Flask(__name__)
     app.config.from_object(config_object)
+    db.init_app(app)
 
     @app.get("/health")
     def health():
