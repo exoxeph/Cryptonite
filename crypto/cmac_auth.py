@@ -8,6 +8,7 @@ CMAC authenticates data; it does not encrypt it.
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
 from cryptography.hazmat.primitives import cmac
+from utils.crypto_trace import trace_mac
 
 
 CMAC_KEY_LENGTH = 24
@@ -21,7 +22,9 @@ def compute_cmac(key: bytes, message: bytes) -> bytes:
     _require_key_length(key)
     authenticator = cmac.CMAC(TripleDES(key))
     authenticator.update(message)
-    return authenticator.finalize()
+    result = authenticator.finalize()
+    trace_mac("CMAC", message_bytes=len(message), tag_bytes=len(result), key="[PROTECTED]")
+    return result
 
 
 def verify_cmac(key: bytes, message: bytes, expected_tag: bytes) -> bool:
@@ -31,13 +34,16 @@ def verify_cmac(key: bytes, message: bytes, expected_tag: bytes) -> bool:
     _require_bytes(expected_tag, "expected_tag")
     _require_key_length(key)
     if len(expected_tag) != CMAC_TAG_LENGTH:
+        trace_mac("CMAC_VERIFY", result="INVALID", key="[PROTECTED]")
         return False
     authenticator = cmac.CMAC(TripleDES(key))
     authenticator.update(message)
     try:
         authenticator.verify(expected_tag)
     except InvalidSignature:
+        trace_mac("CMAC_VERIFY", result="INVALID", key="[PROTECTED]")
         return False
+    trace_mac("CMAC_VERIFY", result="VALID", key="[PROTECTED]")
     return True
 
 

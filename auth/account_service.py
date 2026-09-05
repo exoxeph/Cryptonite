@@ -9,6 +9,7 @@ from crypto.key_manager import get_active_key, get_key_by_version
 from database.db import get_db
 from crypto.rsa import rsa_decrypt_bytes, rsa_encrypt_bytes
 from database import db
+from utils.crypto_trace import mask_email, mask_phone, trace_decrypt, trace_encrypt
 
 
 def normalize_email(email: str) -> str:
@@ -52,7 +53,9 @@ def encrypt_profile_field(value: str, public_key) -> bytes:
     """Encrypt one profile value with RSA_PROFILE and return reusable JSON bytes."""
     if not isinstance(value, str):
         raise TypeError("profile value must be a string")
-    return serialize_rsa_ciphertext(rsa_encrypt_bytes(value.encode("utf-8"), public_key))
+    result = serialize_rsa_ciphertext(rsa_encrypt_bytes(value.encode("utf-8"), public_key))
+    trace_encrypt("RSA_PROFILE", field="profile value", plaintext=mask_email(value) if "@" in value else mask_phone(value), storage="users encrypted column", result="BEFORE DATABASE INSERT")
+    return result
 
 
 def deserialize_rsa_ciphertext(serialized: bytes) -> dict:
@@ -72,7 +75,9 @@ def decrypt_profile_field(serialized: bytes, private_key) -> str:
     """Decrypt one profile field using the same serialization as registration."""
     plaintext = rsa_decrypt_bytes(deserialize_rsa_ciphertext(serialized), private_key)
     try:
-        return plaintext.decode("utf-8")
+        result = plaintext.decode("utf-8")
+        trace_decrypt("RSA_PROFILE", plaintext="[AUTHORIZED VALUE]", result="AUTHORIZED DISPLAY")
+        return result
     except UnicodeDecodeError as exc:
         raise ValueError("profile field is not valid UTF-8") from exc
 

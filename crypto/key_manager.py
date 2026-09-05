@@ -22,6 +22,7 @@ from crypto.ecc import ecc_generate_keypair
 from crypto.ecc_curve import is_on_curve
 from crypto.rsa import rsa_decrypt_bytes, rsa_encrypt_bytes, rsa_generate_keypair
 from database.db import get_db
+from utils.crypto_trace import trace_key_event
 
 
 PURPOSE_ALGORITHMS = {
@@ -65,6 +66,7 @@ def generate_key(purpose: str, algorithm: str | None = None) -> dict:
                 wrapped_private,
             ),
         )
+    trace_key_event("GENERATE", purpose=purpose, algorithm=expected_algorithm, version=f"v{version}", status="ACTIVE", private="[PROTECTED]")
     return _key_record(version, expected_algorithm, public_key, private_material)
 
 
@@ -77,6 +79,7 @@ def get_active_key(purpose: str) -> dict:
     ).fetchone()
     if row is None:
         raise KeyError(f"no active key exists for purpose {purpose}")
+    trace_key_event("RETRIEVE", purpose=purpose, version=f"v{row['version']}", status=row["status"])
     return _decode_row(row)
 
 
@@ -92,12 +95,15 @@ def get_key_by_version(purpose: str, version: int) -> dict:
         raise KeyError(f"key version {version} does not exist for purpose {purpose}")
     if row["status"] == "REVOKED":
         raise ValueError(f"key version {version} is revoked")
+    trace_key_event("RETRIEVE", purpose=purpose, version=f"v{row['version']}", status=row["status"], historical=row["status"] == "RETIRED")
     return _decode_row(row)
 
 
 def rotate_key(purpose: str) -> dict:
     """Generate the next purpose version; old ciphertext is left untouched."""
-    return generate_key(purpose)
+    result = generate_key(purpose)
+    trace_key_event("ROTATE", purpose=purpose, new_version=f"v{result['version']}", old_records="historical versions remain available")
+    return result
 
 
 def list_key_metadata() -> list[dict]:

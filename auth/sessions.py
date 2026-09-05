@@ -9,6 +9,7 @@ from flask import current_app, request
 from crypto.cmac_auth import compute_cmac, verify_cmac
 from crypto.key_manager import get_active_key
 from database import db
+from utils.crypto_trace import trace_event
 
 
 def create_session(user) -> str:
@@ -24,6 +25,7 @@ def create_session(user) -> str:
         "INSERT INTO sessions (session_id_hash, user_id, expires_at, active) VALUES (?, ?, ?, 1)",
         (session_id_hash, user_id, expires_at),
     )
+    trace_event("SESSION", "CREATE", user_id=user_id, expiry=expires_at, session_id="[HIDDEN]", cookie="[HIDDEN]")
     return f"{session_id}.{expires_at}.{signature}"
 
 
@@ -87,7 +89,9 @@ def _validated_session(cookie_value: str | None):
         if user is None:
             return None
         if not verify_cmac(_session_cmac_key(), _payload(session_id, user["id"], cookie_expiry), signature):
+            trace_event("SESSION", "VALIDATE", result="INVALID CMAC", session_id="[HIDDEN]")
             return None
+        trace_event("SESSION", "VALIDATE", user_id=user["id"], result="AUTHENTICATED", session_id="[HIDDEN]")
         return user, session_row
     except (TypeError, ValueError, UnicodeEncodeError):
         return None

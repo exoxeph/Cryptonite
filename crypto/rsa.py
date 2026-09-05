@@ -7,6 +7,7 @@ for production cryptography.
 """
 
 from crypto.bigint_utils import gcd, generate_prime
+from utils.crypto_trace import trace_decrypt, trace_encrypt
 
 RSA_PRIME_BITS = 128
 RSA_PUBLIC_EXPONENT = 11
@@ -66,13 +67,15 @@ def rsa_encrypt_bytes(data: bytes, public_key: tuple[int, int]) -> dict:
         rsa_encrypt(int.from_bytes(data[start : start + chunk_size], "big"), public_key)
         for start in range(0, len(data), chunk_size)
     ]
-    return {
+    result = {
         "format": TEXTBOOK_FORMAT,
         "length": len(data),
         "chunk_size": chunk_size,
         "block_count": len(blocks),
         "blocks": blocks,
     }
+    trace_encrypt("RSA", algorithm="Textbook RSA", plaintext_bytes=len(data), chunk_size=chunk_size, blocks=len(blocks))
+    return result
 
 
 def rsa_decrypt_bytes(container, private_key: tuple[int, int]) -> bytes:
@@ -108,7 +111,9 @@ def rsa_decrypt_bytes(container, private_key: tuple[int, int]) -> bytes:
             raise ValueError("RSA plaintext block is too large") from exc
     if len(plaintext) != length:
         raise ValueError("RSA ciphertext length mismatch")
-    return bytes(plaintext)
+    result = bytes(plaintext)
+    trace_decrypt("RSA", algorithm="Textbook RSA", plaintext_bytes=len(result), blocks=block_count, private="[PROTECTED]")
+    return result
 
 
 def _chunk_size(modulus: int) -> int:

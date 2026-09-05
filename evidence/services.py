@@ -11,6 +11,7 @@ from crypto.key_manager import get_active_key, get_key_by_version
 from crypto.rsa import rsa_decrypt_bytes, rsa_encrypt_bytes
 from database import db
 from database.db import get_db
+from utils.crypto_trace import trace_decrypt, trace_encrypt
 
 
 ALLOWED_MIME_TYPES = {
@@ -63,6 +64,7 @@ def store_evidence(post_id: int, owner_id: int, filename: str, file_bytes: bytes
                 "UPDATE evidence SET file_path = ? WHERE id = ?",
                 (f"encrypted_uploads/evidence_{evidence_id}.enc", evidence_id),
             )
+        trace_encrypt("RSA_EVIDENCE", filename=filename, file_size=len(file_bytes), key_version=active_key["version"], blocks=encrypted_bytes.count(b"\"blocks\""), destination=f"encrypted_uploads/evidence_{evidence_id}.enc")
         _cache_evidence(evidence_id, active_key["version"], filename, file_bytes, mimetype)
         return evidence_id
     except Exception:
@@ -91,6 +93,7 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
     key = get_key_by_version("RSA_EVIDENCE", row["rsa_key_version"])
     cached = _get_cached_evidence(row["id"], row["rsa_key_version"])
     if cached is not None:
+        trace_decrypt("RSA_EVIDENCE", evidence_id=evidence_id, result="CACHE HIT", authorization="AUTHORIZED")
         return cached
     try:
         ciphertext = _deserialize_ciphertext(_evidence_path(row["id"]).read_bytes())
@@ -101,6 +104,7 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
         raise ValueError("evidence could not be read") from exc
     mimetype = _mimetype_for_filename(filename)
     _cache_evidence(row["id"], row["rsa_key_version"], filename, file_bytes, mimetype)
+    trace_decrypt("RSA_EVIDENCE", evidence_id=evidence_id, file_size=len(file_bytes), key_version=row["rsa_key_version"], result="AUTHORIZED BYTES RETURNED")
     return filename, file_bytes, mimetype
 
 

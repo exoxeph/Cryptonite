@@ -4,6 +4,7 @@ import json
 
 from crypto.ecc import ecc_decrypt_point, ecc_encrypt_point
 from crypto.ecc_curve import G, P, Point, is_on_curve, scalar_multiply
+from utils.crypto_trace import trace_decrypt, trace_encrypt
 
 
 _BYTE_TO_POINT = {value: scalar_multiply(value + 1, G) for value in range(256)}
@@ -44,6 +45,7 @@ def ecc_encrypt_bytes(data: bytes, public_key: Point) -> list[tuple[Point, Point
                 break
         else:
             raise ValueError("ECC encryption failed after repeated retries")
+    trace_encrypt("ECC", algorithm="EC-ElGamal", bytes=len(data), ciphertext_units=len(ciphertext))
     return ciphertext
 
 
@@ -57,7 +59,9 @@ def ecc_decrypt_bytes(ciphertext: list[tuple[Point, Point]], private_key: int) -
             raise ValueError("ECC ciphertext entry must contain two points")
         point = ecc_decrypt_point(entry[0], entry[1], private_key)
         output.append(point_to_byte(point))
-    return bytes(output)
+    result = bytes(output)
+    trace_decrypt("ECC", algorithm="EC-ElGamal", bytes=len(result), ciphertext_units=len(ciphertext))
+    return result
 
 
 def serialize_ecc_ciphertext(ciphertext: list[tuple[Point, Point]]) -> str:

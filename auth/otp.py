@@ -9,6 +9,7 @@ from flask import current_app
 from crypto.hashing import generate_salt
 from database import db
 from services import email_service
+from utils.crypto_trace import trace_hash
 
 
 def generate_otp() -> str:
@@ -33,6 +34,7 @@ def store_otp(user_id: int, otp_code: str) -> int:
                VALUES (?, ?, ?, ?, 0)""",
             (user_id, otp_hash, salt, expires_at.isoformat(),),
         )
+    trace_hash("OTP", method="SHA-256", salt_bytes=len(salt), otp="[NEVER LOGGED]", result="STORED SALTED HASH")
     return cursor.lastrowid
 
 
@@ -51,11 +53,14 @@ def verify_otp(user_id: int, submitted_code: str) -> bool:
         return False
     submitted_hash = hashlib.sha256(row["otp_salt"] + submitted_code.encode("ascii")).digest()
     if not secrets.compare_digest(submitted_hash, row["otp_hash"]):
+        trace_hash("OTP_VERIFY", result="NO MATCH", otp="[NEVER LOGGED]")
         return False
     connection = db.get_db()
     with connection:
         cursor = connection.execute("UPDATE otp_codes SET used = 1 WHERE id = ? AND used = 0", (row["id"],))
-    return cursor.rowcount == 1
+    result = cursor.rowcount == 1
+    trace_hash("OTP_VERIFY", result="MATCH" if result else "ALREADY USED", otp="[NEVER LOGGED]")
+    return result
 
 
 def invalidate_latest_otp(user_id: int) -> None:

@@ -3,6 +3,8 @@
 import hashlib
 import secrets
 
+from utils.crypto_trace import trace_hash
+
 
 def generate_salt(length_bytes: int = 16) -> bytes:
     """Generate a fresh cryptographically random password salt."""
@@ -19,7 +21,9 @@ def hash_password(password: str, salt: bytes) -> bytes:
     """
     _require_password(password)
     _require_salt(salt)
-    return hashlib.sha256(salt + password.encode("utf-8")).digest()
+    result = hashlib.sha256(salt + password.encode("utf-8")).digest()
+    trace_hash("PASSWORD", method="SHA-256", salt_bytes=len(salt), password="[NEVER LOGGED]")
+    return result
 
 
 def verify_password(password: str, salt: bytes, expected_hash: bytes) -> bool:
@@ -30,9 +34,11 @@ def verify_password(password: str, salt: bytes, expected_hash: bytes) -> bool:
         raise TypeError("expected_hash must be bytes")
     if len(expected_hash) != hashlib.sha256().digest_size:
         return False
-    return secrets.compare_digest(
+    result = secrets.compare_digest(
         hashlib.sha256(salt + password.encode("utf-8")).digest(), expected_hash
     )
+    trace_hash("PASSWORD_VERIFY", result="MATCH" if result else "NO MATCH", password="[NEVER LOGGED]")
+    return result
 
 
 def _require_password(password: str) -> None:
