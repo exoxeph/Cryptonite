@@ -4,11 +4,29 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Authority Bridged{% endblock %}</title>
+    <meta name="description" content="A secure communication bridge between students and university authorities.">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </head>
   <body>
-    <main>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site-header">
+      <nav class="navbar container" aria-label="Primary navigation">
+        <a class="brand" href="{{ url_for('ui.home') }}"><span class="brand-mark" aria-hidden="true">↔</span><span>Authority <strong>Bridged</strong></span></a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>Menu</button>
+        <div class="nav-links" id="site-nav" data-nav-menu>
+          {% if g.current_user is defined and g.current_user %}
+            <a href="{{ url_for('auth.dashboard') }}">Dashboard</a><a href="{{ url_for('posts.post_list') }}">Complaints</a><a href="{{ url_for('posts.new_post') }}" class="nav-action">Submit complaint</a><a href="{{ url_for('auth.profile') }}">Profile</a>
+            {% if g.current_user.role == 'admin' %}<a href="{{ url_for('admin.posts') }}">Admin</a>{% endif %}
+            <form class="inline-form" method="post" action="{{ url_for('auth.logout') }}"><button class="button button-ghost button-small" type="submit">Log out</button></form>
+          {% else %}<a href="{{ url_for('ui.about') }}">How it works</a><a href="{{ url_for('ui.help_page') }}">Help</a><a href="{{ url_for('auth.login') }}">Sign in</a><a class="button button-primary button-small" href="{{ url_for('auth.register') }}">Create account</a>{% endif %}
+        </div>
+      </nav>
+    </header>
+    <main id="main-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="container flash-stack">{% for category, message in messages %}<div class="alert alert-{{ category }}" role="alert">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
       {% block content %}{% endblock %}
     </main>
+    <footer class="site-footer"><div class="container footer-inner"><a class="brand" href="{{ url_for('ui.home') }}"><span class="brand-mark" aria-hidden="true">↔</span><span>Authority <strong>Bridged</strong></span></a><span>Secure student-authority communication · Course project</span><div><a href="{{ url_for('ui.about') }}">About</a><a href="{{ url_for('ui.help_page') }}">Help</a></div></div></footer>
   </body>
 </html>

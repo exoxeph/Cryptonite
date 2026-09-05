@@ -1,15 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Complaints - Authority Bridged{% endblock %}
+{% block title %}Complaints | Authority Bridged{% endblock %}
 {% block content %}
-<h1>Complaints</h1>
-<p><a href="{{ url_for('posts.new_post') }}">Create complaint</a></p>
-{% for post in posts %}
-<article>
-  <h2><a href="{{ url_for('posts.post_detail', post_id=post.id) }}">{{ post.title }}</a></h2>
-  <p>{{ post.description }}</p>
-  <p>{{ post.display_owner }} | {{ post.status }}</p>
-</article>
-{% else %}
-<p>No complaints yet.</p>
-{% endfor %}
+<section class="page-shell"><div class="container"><div class="page-header"><div><p class="eyebrow">Student workspace</p><h1>Complaints</h1><p>Review concerns shared with university authorities.</p></div><a class="button button-primary" href="{{ url_for('posts.new_post') }}">Submit complaint</a></div><div class="list">{% for post in posts %}<article class="list-item surface"><div><div class="row-between"><h3><a href="{{ url_for('posts.post_detail', post_id=post.id) }}">{{ post.title }}</a></h3><span class="badge badge-{{ post.status|lower }}">{{ post.status }}</span></div><p>{{ post.description|truncate(150) }}</p><p class="field-hint">{{ post.display_owner }} · {{ post.upvote_count }} supports</p></div><a class="button button-secondary button-small" href="{{ url_for('posts.post_detail', post_id=post.id) }}">View details</a></article>{% else %}<div class="empty-state surface"><h2>No complaints yet</h2><p>Share a concern with the appropriate university authority.</p><a class="button button-primary" href="{{ url_for('posts.new_post') }}">Submit your first complaint</a></div>{% endfor %}</div></div></section>
 {% endblock %}

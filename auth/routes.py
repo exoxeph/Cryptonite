@@ -43,7 +43,7 @@ def register():
 @auth_bp.get("/register/success")
 def register_success():
     """Provide a simple post-registration confirmation without implementing login."""
-    return "Registration successful."
+    return render_template("register_success.html")
 
 
 @auth_bp.route("/login", methods=("GET", "POST"))
@@ -105,8 +105,8 @@ def verify_otp():
 @auth_bp.get("/dashboard")
 @login_required
 def dashboard():
-    """Minimal authenticated landing page until the profile module exists."""
-    return "Authenticated session active."
+    """Render the authenticated landing page using the current user context."""
+    return render_template("dashboard.html", user=g.current_user)
 
 
 @auth_bp.post("/logout")

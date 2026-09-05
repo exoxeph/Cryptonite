@@ -1,15 +1,1 @@
-{% extends "base.html" %}
-{% block title %}Admin complaints - Authority Bridged{% endblock %}
-{% block content %}
-<h1>Complaints</h1>
-<p><a href="{{ url_for('admin.keys') }}">Key Management</a></p>
-{% for post in posts %}
-<article>
-  <h2><a href="{{ url_for('admin.post_detail', post_id=post.id) }}">{{ post.title }}</a></h2>
-  <p>{{ post.display_owner }} | {{ post.status }}</p>
-  <p>{{ post.description }}</p>
-</article>
-{% else %}
-<p>No complaints.</p>
-{% endfor %}
-{% endblock %}
+{% extends "base.html" %}{% block title %}Admin complaints | Authority Bridged{% endblock %}{% block content %}<section class="page-shell"><div class="container"><div class="page-header"><div><p class="eyebrow">Administration</p><h1>Complaints</h1><p>Review submitted concerns and their response status.</p></div><a class="button button-secondary" href="{{ url_for('admin.keys') }}">Key management</a></div><div class="surface table-wrap"><table><thead><tr><th>Complaint</th><th>Submitted by</th><th>Status</th><th>Support</th><th>Action</th></tr></thead><tbody>{% for post in posts %}<tr><td><strong>{{ post.title }}</strong><br><span class="field-hint">{{ post.description|truncate(100) }}</span></td><td>{{ post.display_owner }}</td><td><span class="badge badge-{{ post.status|lower }}">{{ post.status }}</span></td><td>{{ post.upvote_count }}</td><td><a href="{{ url_for('admin.post_detail', post_id=post.id) }}">Review</a></td></tr>{% else %}<tr><td colspan="5">No complaints.</td></tr>{% endfor %}</tbody></table></div></div></section>{% endblock %}

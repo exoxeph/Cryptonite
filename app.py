@@ -1,5 +1,5 @@
 import click
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 
 from config import Config
 from database import db
@@ -26,16 +26,30 @@ def create_app(config_object=Config):
     from chat.routes import chat_bp
     from evidence.routes import evidence_bp
     from posts.routes import posts_bp
+    from ui.routes import ui_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(evidence_bp)
     app.register_blueprint(posts_bp)
+    app.register_blueprint(ui_bp)
 
     @app.get("/health")
     def health():
         return jsonify(status="ok"), 200
+
+    @app.errorhandler(403)
+    def forbidden(_error):
+        return render_template("errors/403.html"), 403
+
+    @app.errorhandler(404)
+    def not_found(_error):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def server_error(_error):
+        return render_template("errors/500.html"), 500
 
     @app.cli.command("bootstrap-keys")
     def bootstrap_keys_command():

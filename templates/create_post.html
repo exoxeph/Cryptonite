@@ -1,12 +1,5 @@
 {% extends "base.html" %}
 {% block title %}{% if edit %}Edit complaint{% else %}Create complaint{% endif %} - Authority Bridged{% endblock %}
 {% block content %}
-<h1>{% if edit %}Edit complaint{% else %}Create complaint{% endif %}</h1>
-{% if error %}<p role="alert">{{ error }}</p>{% endif %}
-<form method="post"{% if edit %} action="{{ url_for('posts.edit_post', post_id=post_id) }}"{% endif %}>
-  <label>Title <input name="title" maxlength="120" value="{{ values.title }}" required></label>
-  <label>Description <textarea name="description" maxlength="500" required>{{ values.description }}</textarea></label>
-  <label><input type="checkbox" name="anonymous"{% if values.anonymous %} checked{% endif %}> Post anonymously</label>
-  <button type="submit">{% if edit %}Update complaint{% else %}Create complaint{% endif %}</button>
-</form>
+<section class="form-shell"><div class="auth-intro"><p class="eyebrow">{% if edit %}Update a complaint{% else %}New complaint{% endif %}</p><h1>{% if edit %}Edit complaint{% else %}Submit a complaint{% endif %}</h1><p class="lead" style="margin-inline:auto">Give authorities enough context to understand and respond.</p></div><div class="form-card surface">{% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}<form method="post"{% if edit %} action="{{ url_for('posts.edit_post', post_id=post_id) }}"{% endif %}><div class="field"><label for="title">Title</label><input id="title" name="title" maxlength="120" value="{{ values.title }}" data-count-target="#title-count" required><span id="title-count" class="field-hint">0/120</span></div><div class="field"><label for="description">Description</label><textarea id="description" name="description" maxlength="500" data-count-target="#description-count" required>{{ values.description }}</textarea><span id="description-count" class="field-hint">0/500</span></div><div class="field"><label><input type="checkbox" name="anonymous"{% if values.anonymous %} checked{% endif %}> Post anonymously</label><span class="field-hint">Your identity is hidden from other students, but authorized staff can still identify the owner.</span></div><div class="drop-zone"><strong>Supporting evidence</strong><br><span>PDF, PNG, JPG/JPEG · Maximum 200 KB</span><br><small>Evidence can be attached from the complaint detail page.</small></div><div class="actions"><button class="button button-primary" type="submit">{% if edit %}Save changes{% else %}Submit complaint{% endif %}</button>{% if edit %}<a class="button button-secondary" href="{{ url_for('posts.post_detail', post_id=post_id) }}">Cancel</a>{% endif %}</div></form></div></section>
 {% endblock %}

@@ -48,6 +48,12 @@ For an informational coverage report:
 python -m pytest --cov=crypto --cov=auth --cov=posts --cov=evidence --cov=chat --cov=admin --cov-report=term-missing -q
 ```
 
+## Local UI
+
+Start the development server with `flask --app app:create_app run --debug`,
+then open `http://127.0.0.1:5000/`. Set `UI_PREVIEW_ENABLED=False` to disable
+the development-only in-memory page gallery at `/ui-preview`.
+
 Tests use temporary SQLite databases and evidence directories. OTP email
 delivery is mocked; the test suite does not require provider credentials or
 make external email calls.

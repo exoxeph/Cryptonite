@@ -341,6 +341,8 @@ def test_admin_detail_includes_authorized_evidence_link(admin_app):
 
 def test_phase16_route_inventory_matches_implemented_scope(admin_app):
     expected = {
+        ("GET", "/"),
+        ("GET", "/about"),
         ("GET", "/admin/keys"),
         ("GET", "/admin/posts"),
         ("GET", "/admin/posts/<int:post_id>"),
@@ -350,6 +352,8 @@ def test_phase16_route_inventory_matches_implemented_scope(admin_app):
         ("GET", "/dashboard"),
         ("GET", "/evidence/<int:evidence_id>"),
         ("GET", "/health"),
+        ("GET", "/help"),
+        ("GET", "/how-it-works"),
         ("GET", "/login"),
         ("POST", "/login"),
         ("POST", "/logout"),
@@ -370,6 +374,8 @@ def test_phase16_route_inventory_matches_implemented_scope(admin_app):
         ("GET", "/register/success"),
         ("GET", "/verify-otp"),
         ("POST", "/verify-otp"),
+        ("GET", "/ui-preview"),
+        ("GET", "/ui-preview/<page>"),
     }
     actual = {
         (method, rule.rule)
