@@ -121,8 +121,27 @@ def verify_otp():
 @auth_bp.get("/dashboard")
 @login_required
 def dashboard():
-    """Render the authenticated landing page using the current user context."""
-    return render_template("dashboard.html", user=g.current_user)
+    """Render the role-specific authenticated landing page."""
+    if g.current_user["role"] == "admin":
+        from posts.services import get_admin_dashboard
+
+        try:
+            dashboard_data = get_admin_dashboard(g.current_user)
+        except (KeyError, TypeError, ValueError, PermissionError):
+            return "Admin dashboard could not be loaded.", 500
+        return render_template(
+            "admin/dashboard.html",
+            posts=dashboard_data["posts"],
+            counts=dashboard_data["counts"],
+            total=dashboard_data["total"],
+        )
+    from posts.services import get_student_dashboard
+
+    try:
+        dashboard_data = get_student_dashboard(g.current_user["id"])
+    except (KeyError, TypeError, ValueError, PermissionError):
+        return "Dashboard could not be loaded.", 500
+    return render_template("dashboard.html", user=g.current_user, **dashboard_data)
 
 
 @auth_bp.post("/logout")

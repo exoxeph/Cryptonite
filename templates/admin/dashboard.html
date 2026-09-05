@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Admin dashboard | Cryptonite{% endblock %}
+{% block content %}
+<section class="page-shell"><div class="container">
+  <div class="page-header"><div><p class="eyebrow">Administration</p><h1>Review center</h1><p>Monitor submitted complaints and move them through the response workflow.</p></div><div class="actions"><a class="button button-primary" href="{{ url_for('admin.posts') }}">Review complaints</a><a class="button button-secondary" href="{{ url_for('admin.keys') }}">Key management</a></div></div>
+  <div class="stat-grid"><div class="stat surface"><strong>{{ counts['Pending'] }}</strong><span>Pending review</span></div><div class="stat surface"><strong>{{ counts['Acknowledged'] }}</strong><span>Acknowledged</span></div><div class="stat surface"><strong>{{ counts['Resolved'] }}</strong><span>Resolved</span></div><div class="stat surface"><strong>{{ total }}</strong><span>Total complaints</span></div></div>
+<section class="surface admin-queue"><div class="row-between"><div><p class="eyebrow">Work queue</p><h2>Recent complaints</h2></div><a href="{{ url_for('admin.posts') }}">View all</a></div><div class="table-wrap"><table><thead><tr><th>Complaint</th><th>Submitted by</th><th>Status</th><th>Support</th><th></th></tr></thead><tbody>{% for post in posts %}<tr><td><strong>{{ post.title }}</strong><br><span class="field-hint">Complaint #{{ post.id }} · {{ post.created_at }}</span></td><td>{% if post.anonymous %}Anonymous{% else %}Identified student{% endif %}</td><td><span class="badge badge-{{ post.status|lower }}">{{ post.status }}</span></td><td>{{ post.upvote_count }}</td><td><a href="{{ url_for('admin.post_detail', post_id=post.id) }}">Review</a></td></tr>{% else %}<tr><td colspan="5">No complaints have been submitted.</td></tr>{% endfor %}</tbody></table></div></section>
+</div></section>
+{% endblock %}

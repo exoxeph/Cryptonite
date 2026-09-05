@@ -91,13 +91,27 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
 
 
 def list_evidence(post_id: int, requester) -> list[dict]:
-    rows = db.query_all("SELECT id FROM evidence WHERE post_id = ? ORDER BY id", (post_id,))
-    if not rows:
-        return []
     post = db.query_one("SELECT owner_id FROM posts WHERE id = ?", (post_id,))
     if post is None or not can_view_evidence(requester, post):
         return []
-    return [{"id": row["id"]} for row in rows]
+    rows = db.query_all(
+        "SELECT id, encrypted_filename, rsa_key_version FROM evidence WHERE post_id = ? ORDER BY id",
+        (post_id,),
+    )
+    items = []
+    for row in rows:
+        filename = rsa_decrypt_bytes(
+            _deserialize_ciphertext(row["encrypted_filename"]),
+            get_key_by_version("RSA_EVIDENCE", row["rsa_key_version"])["private_key"],
+        ).decode("utf-8")
+        mimetype = _mimetype_for_filename(filename)
+        items.append({
+            "id": row["id"],
+            "filename": filename,
+            "mimetype": mimetype,
+            "is_image": mimetype.startswith("image/"),
+        })
+    return items
 
 
 def _validate_upload(filename: str, mimetype: str, file_bytes: bytes) -> None:

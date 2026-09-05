@@ -94,7 +94,7 @@ def test_create_post_stores_ciphertext(posts_app):
     assert row["encrypted_description"] != "The gate does not lock"
 
 
-def test_public_post_listing_decrypts_for_authorized_viewer(posts_app):
+def test_public_post_listing_decrypts_title_only(posts_app):
     user_id = _user(posts_app, "alice@example.com", name="Alice")
     with posts_app.test_client() as client:
         _authenticate(client, posts_app, user_id)
@@ -102,8 +102,42 @@ def test_public_post_listing_decrypts_for_authorized_viewer(posts_app):
         response = client.get("/posts")
     assert response.status_code == 200
     assert b"Broken gate" in response.data
-    assert b"The gate does not lock" in response.data
-    assert b"Alice" in response.data
+    assert b"The gate does not lock" not in response.data
+    assert b"Alice" not in response.data
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        detail = client.get("/posts/1")
+    assert b"The gate does not lock" in detail.data
+    assert b"Alice" in detail.data
+
+
+def test_public_post_feed_paginates_before_decryption(posts_app):
+    user_id = _user(posts_app, "alice@example.com")
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        for number in range(1, 12):
+            _create_post(client, f"Complaint {number:02d}", f"Private description {number}")
+        page_one = client.get("/posts?page=1")
+        page_two = client.get("/posts?page=2")
+    assert b"Page 1 of 2" in page_one.data
+    assert b"Complaint 11" in page_one.data
+    assert b"Complaint 01" not in page_one.data
+    assert b"Private description" not in page_one.data
+    assert b"Page 2 of 2" in page_two.data
+    assert b"Complaint 01" in page_two.data
+
+
+def test_student_dashboard_loads_only_recent_complaints(posts_app):
+    user_id = _user(posts_app, "dashboard@example.com")
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        for number in range(1, 7):
+            _create_post(client, f"Dashboard complaint {number}", "Dashboard details")
+        response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"Dashboard complaint 6" in response.data
+    assert b"Dashboard complaint 1" not in response.data
+    assert b"6" in response.data
 
 
 def test_non_anonymous_post_shows_owner_name(posts_app):

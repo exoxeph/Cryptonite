@@ -6,11 +6,13 @@ from auth.decorators import role_required
 from crypto import key_manager
 from evidence.services import list_evidence
 from posts.services import (
+    count_admin_posts,
     PostNotFoundError,
     acknowledge_post,
     change_status,
     get_admin_post_for_display,
     list_admin_posts,
+    get_page_count,
 )
 
 
@@ -44,10 +46,21 @@ def rotate_key(purpose):
 @role_required("admin")
 def posts():
     try:
-        values = list_admin_posts(g.current_user)
+        page = max(1, int(request.args.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+    status = request.args.get("status", "all")
+    sort = request.args.get("sort", "newest")
+    try:
+        total = count_admin_posts(status)
+        total_pages = get_page_count(total)
+        page = min(page, total_pages)
+        values = list_admin_posts(g.current_user, page=page, status=status, sort=sort)
     except (KeyError, TypeError, ValueError, PermissionError):
         return "Admin posts could not be loaded.", 500
-    return render_template("admin/posts.html", posts=values)
+    return render_template(
+        "admin/posts.html", posts=values, page=page, total_pages=total_pages, selected_status=status, selected_sort=sort
+    )
 
 
 @admin_bp.get("/admin/posts/<int:post_id>")

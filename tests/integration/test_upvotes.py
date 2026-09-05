@@ -91,7 +91,24 @@ def test_upvote_increments_count(upvote_app):
     assert _count(upvote_app, post_id) == 1
 
 
-def test_duplicate_upvote_rejected(upvote_app):
+def test_student_can_toggle_upvote(upvote_app):
+    owner = _user(upvote_app, "owner@example.com")
+    voter = _user(upvote_app, "voter@example.com")
+    with upvote_app.test_client() as client:
+        _authenticate(client, upvote_app, owner)
+        post_id = _make_post(client)
+    with upvote_app.test_client() as client:
+        _authenticate(client, upvote_app, voter)
+        added = client.post(f"/posts/{post_id}/upvote", headers={"Accept": "application/json"})
+        removed = client.post(f"/posts/{post_id}/upvote", headers={"Accept": "application/json"})
+    assert added.status_code == 200
+    assert added.json == {"upvote_count": 1, "has_upvoted": True}
+    assert removed.status_code == 200
+    assert removed.json == {"upvote_count": 0, "has_upvoted": False}
+    assert _count(upvote_app, post_id) == 0
+
+
+def test_repeated_upvote_click_undoes(upvote_app):
     owner = _user(upvote_app, "owner@example.com")
     voter = _user(upvote_app, "voter@example.com")
     with upvote_app.test_client() as client:
@@ -100,10 +117,9 @@ def test_duplicate_upvote_rejected(upvote_app):
     with upvote_app.test_client() as client:
         _authenticate(client, upvote_app, voter)
         assert client.post(f"/posts/{post_id}/upvote").status_code == 302
-        duplicate = client.post(f"/posts/{post_id}/upvote")
-    assert duplicate.status_code == 409
-    assert b"UNIQUE constraint" not in duplicate.data
-    assert _count(upvote_app, post_id) == 1
+        removed = client.post(f"/posts/{post_id}/upvote")
+    assert removed.status_code == 302
+    assert _count(upvote_app, post_id) == 0
 
 
 def test_owner_cannot_upvote_own_post(upvote_app):

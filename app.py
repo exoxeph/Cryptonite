@@ -89,6 +89,25 @@ def create_app(config_object=Config):
         create_user(name, email, contact, password, role="admin")
         click.echo("Admin account created.")
 
+    @app.cli.command("seed-demo")
+    @click.option("--source-dir", default="files", show_default=True, type=click.Path(exists=True, file_okay=False))
+    def seed_demo_command(source_dir):
+        """Import the numbered local demo complaints and selected evidence."""
+        from database.seed import seed_demo_data
+
+        db.init_db()
+        from crypto.key_manager import bootstrap_keys
+
+        bootstrap_keys()
+        records = seed_demo_data(source_dir)
+        for record in records:
+            evidence = " + evidence" if record["evidence_added"] else ""
+            click.echo(
+                f"Demo {record['number']:02d}: {record['email']} / "
+                f"{record['password']} -> post {record['post_id']}{evidence}"
+            )
+        click.echo(f"Seeded {len(records)} demo complaints.")
+
     return app
 
 
