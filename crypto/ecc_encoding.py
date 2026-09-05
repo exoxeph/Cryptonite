@@ -22,6 +22,10 @@ def byte_to_point(byte_value: int) -> Point:
 
 def point_to_byte(point: Point) -> int:
     """Reverse the fixed byte mapping, rejecting points outside its table."""
+    if point is None or not isinstance(point, tuple) or len(point) != 2:
+        raise ValueError("point is not part of the configured byte mapping")
+    if type(point[0]) is not int or type(point[1]) is not int:
+        raise ValueError("point is not part of the configured byte mapping")
     if point not in _POINT_TO_BYTE:
         raise ValueError("point is not part of the configured byte mapping")
     return _POINT_TO_BYTE[point]

@@ -138,13 +138,13 @@ authority-bridged/
 
 **`.env.example` / `.env`** — `.env` holds the decimal root RSA key integers (`ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`), `RSA_PRIME_BITS=128`, `RSA_PUBLIC_EXPONENT=11`, email API key, Flask `SECRET_KEY` (used only for CSRF/Flask session cookie signing if used, **not** for crypto). `.env` is git-ignored; `.env.example` documents required variable names with placeholder values. Root private material is never stored in SQLite or Git.
 
-**`crypto/bigint_utils.py`** — Shared number-theory primitives used by both RSA and ECC: modular exponentiation (`mod_pow`), extended Euclidean algorithm / modular inverse (`mod_inverse`), probabilistic primality test (Miller–Rabin), random prime generation, `gcd`. **Must not** import Flask, SQLite, or any route/template code. Pure math only, so it is trivially unit-testable and reusable by `rsa.py` and `ecc.py` without duplication.
+**`crypto/bigint_utils.py`** — Shared number-theory primitives used by RSA: modular exponentiation (`mod_pow`), extended Euclidean algorithm / modular inverse (`mod_inverse`), probabilistic primality test (Miller–Rabin), random prime generation, `gcd`. **Must not** import Flask, SQLite, or any route/template code. Pure math only, so it is trivially unit-testable and reusable by `rsa.py` without duplication. ECC uses Python's built-in modular inverse operation directly to match the classroom implementation.
 
 **`crypto/rsa.py`** — Educational textbook RSA key generation (`p`, `q`, `n`, `φ(n)`, `e=11`, `d`), raw operations, and `TBR1` safe byte chunking. Depends only on `crypto/bigint_utils.py`. It intentionally has no modern padding and must not know about SQLite, Flask, or which purpose (profile vs evidence) it is being used for — purpose is the caller's concern (`key_manager.py`).
 
 **`crypto/ecc_curve.py`** — The chosen elliptic curve domain parameters (`p`, `a`, `b`, `G`, curve order `n`) and the raw point arithmetic: point addition, point doubling, scalar multiplication (double-and-add), point validity check. No encoding, no encryption, no Flask/SQLite.
 
-**`crypto/ecc.py`** — EC-ElGamal key generation (`d`, `Q = dG`), `ecc_encrypt_point`, `ecc_decrypt_point` operating on curve points from `ecc_curve.py`. Depends on `ecc_curve.py` and `bigint_utils.py` (for the ephemeral scalar `k` and modular inverse used in decryption arithmetic). Must not contain byte/text encoding logic.
+**`crypto/ecc.py`** — EC-ElGamal key generation (`d`, `Q = dG`), `ecc_encrypt_point`, `ecc_decrypt_point` operating on curve points from `ecc_curve.py`. Depends only on `ecc_curve.py`; ephemeral scalars use `secrets`, and ECC modular division uses Python's built-in `pow(value, -1, modulus)` operation. Must not contain byte/text encoding logic.
 
 **`crypto/ecc_encoding.py`** — The byte ↔ curve-point mapping table (`byte_to_point`, `point_to_byte`) and the higher-level `ecc_encrypt_bytes` / `ecc_decrypt_bytes` helpers that apply `ecc.py` per byte. This is the only place the "text becomes a sequence of points" concept lives, keeping `ecc.py` a pure algorithm module.
 
@@ -360,7 +360,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 - [ ] Implement `is_on_curve(point)`.
 - [ ] Implement `point_add(p1, p2)` handling the point-at-infinity identity and the doubling case (`p1 == p2`).
 - [ ] Implement `point_double(p)` using the tangent-line formula.
-- [ ] Implement `scalar_multiply(k, point)` via double-and-add, using `bigint_utils.mod_inverse` for the slope's modular division.
+- [ ] Implement `scalar_multiply(k, point)` via double-and-add, using `pow(value, -1, modulus)` for the slope's modular division as demonstrated in the course material.
 - [ ] Implement `ecc_generate_keypair()` in `ecc.py`: pick random `d` in `[1, N-1]`, compute `Q = scalar_multiply(d, G)`. Returns `{"public": Q, "private": d}`.
 - [ ] Implement `ecc_encrypt_point(M_point, public_key_Q) -> (C1, C2)`: pick random ephemeral `k`, `C1 = scalar_multiply(k, G)`, `C2 = point_add(M_point, scalar_multiply(k, public_key_Q))`.
 - [ ] Implement `ecc_decrypt_point(C1, C2, private_key_d) -> M_point`: compute `scalar_multiply(d, C1)`, negate it (point negation: `(x, -y mod P)`), `point_add` with `C2`.

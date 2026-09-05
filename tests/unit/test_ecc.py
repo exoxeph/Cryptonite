@@ -26,6 +26,16 @@ def test_manually_reproducible_doubling_and_addition():
     assert point_add(G, (93, 351)) == (444, 194)
 
 
+def test_classroom_curve_arithmetic_uses_the_same_formulas():
+    classroom_p = 23
+    classroom_a = -2
+    classroom_b = 2
+    classroom_point = (4, 9)
+    assert is_on_curve(classroom_point, classroom_a, classroom_p, classroom_b)
+    assert point_double(classroom_point, classroom_a, classroom_p, classroom_b) == (15, 14)
+    assert scalar_multiply(3, classroom_point, classroom_a, classroom_p, classroom_b) == (12, 2)
+
+
 def test_scalar_multiplication_identities():
     assert scalar_multiply(0, G) is None
     assert scalar_multiply(1, G) == G

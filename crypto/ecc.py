@@ -30,7 +30,7 @@ def ecc_decrypt_point(c1: Point, c2: Point, private_key: int) -> Point:
         raise ValueError("EC-ElGamal C1 cannot be the point at infinity")
     _require_point(c1, "ciphertext C1")
     _require_point(c2, "ciphertext C2")
-    if not isinstance(private_key, int) or not 1 <= private_key < N:
+    if type(private_key) is not int or not 1 <= private_key < N:
         raise ValueError("ECC private scalar must be in [1, N-1]")
     shared_secret = scalar_multiply(private_key, c1)
     return point_add(c2, point_neg(shared_secret))

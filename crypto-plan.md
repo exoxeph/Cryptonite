@@ -183,6 +183,12 @@ After decryption, you get the point back and look it up in the table to recover 
 
 It's inefficient compared with real-world cryptography, but for a **CSE447 demonstration using only asymmetric encryption**, it's straightforward and easy to explain.
 
+The CSE447 lab demonstrates ECC arithmetic and ECDH-style shared-key
+calculation. This project uses the same point-addition and
+scalar-multiplication operations in EC-ElGamal so ECC can serve as an
+asymmetric encryption algorithm for posts and chat. ECDH alone is key
+agreement, so an additional encryption layer would otherwise be required.
+
 ---
 
 # 3. Evidence uploads
