@@ -4,7 +4,7 @@ import pytest
 
 from app import create_app
 from auth import otp
-from auth.account_service import create_user, find_user_by_email
+from auth.account_service import create_user, find_user_by_email, get_profile
 from crypto import key_manager
 from database import db
 from services import email_service
@@ -14,7 +14,8 @@ class ProfileConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-profile-flow-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
     ROOT_RSA_D = ""
@@ -29,7 +30,7 @@ class ProfileConfig:
 
 @pytest.fixture
 def profile_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     ProfileConfig.DATABASE_PATH = str(tmp_path / "profile.db")
     ProfileConfig.ROOT_RSA_E, ProfileConfig.ROOT_RSA_N = map(str, root["public"])
     ProfileConfig.ROOT_RSA_D = str(root["private"][0])
@@ -142,17 +143,19 @@ def test_profile_update_reencrypts_all_fields_after_rotation(profile_app):
         assert client.get("/profile").status_code == 200
     after = _row(profile_app, user_id)
     assert after["profile_key_version"] == active["version"]
-    assert all(after[field] != before[field] for field in ("encrypted_name", "encrypted_email", "encrypted_contact"))
+    assert after["encrypted_name"] != before["encrypted_name"]
+    with profile_app.app_context():
+        assert get_profile(user_id) == {"name": "Alice 2", "email": "alice@example.com", "contact": "111"}
 
 
-def test_profile_rewrite_of_unchanged_values_uses_oaep_randomness(profile_app):
+def test_profile_rewrite_of_unchanged_values_uses_textbook_determinism(profile_app):
     user_id = _create_user(profile_app, "alice@example.com")
     before = _row(profile_app, user_id)
     with profile_app.test_client() as client:
         _authenticate(client, profile_app, user_id)
         assert client.post("/profile", data={"name": "Alice", "email": "alice@example.com", "contact": "111"}).status_code == 302
     after = _row(profile_app, user_id)
-    assert all(after[field] != before[field] for field in ("encrypted_name", "encrypted_email", "encrypted_contact"))
+    assert all(after[field] == before[field] for field in ("encrypted_name", "encrypted_email", "encrypted_contact"))
 
 
 def test_profile_update_ignores_crafted_target_user_id(profile_app):

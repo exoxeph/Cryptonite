@@ -60,40 +60,25 @@ This lines up exactly with the report's requirement to identify which fields are
 
 ### RSA implementation
 
-Implement the important RSA parts yourselves:
+Use educational textbook RSA, implemented from scratch:
 
 ```text
-Generate p and q
-↓
-n = p × q
-↓
+p and q ≈ 128-bit distinct primes
+n = p × q ≈ 256-bit modulus
 φ(n) = (p-1)(q-1)
-↓
-choose e
-↓
-find d = e⁻¹ mod φ(n)
-↓
+e = 11, with gcd(e, φ(n)) = 1
+d = e⁻¹ mod φ(n)
 Public key  = (e,n)
 Private key = (d,n)
 ```
 
-Encryption:
-
-$$
-C=M^e\bmod n
-$$
-
-Decryption:
-
-$$
-M=C^d\bmod n
-$$
-
-Use modular exponentiation implemented by your group rather than calling an RSA encryption library.
-
-For actual byte data, we'll need **padding and chunking**. I recommend implementing an OAEP-style padding layer rather than trying to shove arbitrary-length strings directly into RSA.
-
-We can implement that when we build the RSA module.
+Encryption is `C = M^e mod n` and decryption is `M = C^d mod n`, using the
+project's manual square-and-multiply implementation. Arbitrary bytes are split
+into chunks of `(n.bit_length() - 1) // 8` bytes and stored in the `TBR1`
+container with plaintext length, chunk size, block count, and ciphertext blocks.
+There is no padding; textbook RSA is deterministic, malleable, and not suitable
+for production deployment. Existing OAEP ciphertext must be discarded during
+the documented development-data reset.
 
 ---
 

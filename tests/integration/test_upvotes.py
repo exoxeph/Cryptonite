@@ -14,7 +14,8 @@ class UpvoteConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-upvote-flow-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ROOT_RSA_E = ROOT_RSA_D = ""
     OTP_EXPIRY_SECONDS = 300
     SESSION_COOKIE_NAME = "authority_bridged_pending"
@@ -27,7 +28,7 @@ class UpvoteConfig:
 
 @pytest.fixture
 def upvote_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     UpvoteConfig.DATABASE_PATH = str(tmp_path / "upvotes.db")
     UpvoteConfig.ROOT_RSA_E, UpvoteConfig.ROOT_RSA_N = map(str, root["public"])
     UpvoteConfig.ROOT_RSA_D = str(root["private"][0])

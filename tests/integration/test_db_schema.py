@@ -13,7 +13,8 @@ class TestConfig:
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
     ROOT_RSA_D = ""
-    RSA_KEY_BITS = 2048
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     EMAIL_API_PROVIDER = ""
     EMAIL_API_KEY = ""
     EMAIL_FROM_ADDRESS = ""

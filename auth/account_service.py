@@ -41,11 +41,11 @@ def get_user_by_id(user_id: int):
     return db.query_one("SELECT * FROM users WHERE id = ?", (user_id,))
 
 
-def serialize_rsa_ciphertext(blocks: list[int]) -> bytes:
-    """Serialize RSA ciphertext blocks as compact JSON for SQLite BLOB storage."""
-    if not isinstance(blocks, list) or not all(isinstance(block, int) and block >= 0 for block in blocks):
-        raise ValueError("RSA ciphertext must be a list of non-negative integers")
-    return json.dumps(blocks, separators=(",", ":")).encode("utf-8")
+def serialize_rsa_ciphertext(container: dict) -> bytes:
+    """Serialize a textbook-RSA byte container as compact JSON."""
+    if not isinstance(container, dict) or container.get("format") != "TBR1":
+        raise ValueError("invalid RSA ciphertext container")
+    return json.dumps(container, separators=(",", ":")).encode("utf-8")
 
 
 def encrypt_profile_field(value: str, public_key) -> bytes:
@@ -55,17 +55,17 @@ def encrypt_profile_field(value: str, public_key) -> bytes:
     return serialize_rsa_ciphertext(rsa_encrypt_bytes(value.encode("utf-8"), public_key))
 
 
-def deserialize_rsa_ciphertext(serialized: bytes) -> list[int]:
+def deserialize_rsa_ciphertext(serialized: bytes) -> dict:
     """Decode the shared compact JSON RSA ciphertext representation."""
     if not isinstance(serialized, bytes):
         raise TypeError("serialized RSA ciphertext must be bytes")
     try:
-        blocks = json.loads(serialized.decode("utf-8"))
+        container = json.loads(serialized.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("malformed RSA ciphertext") from exc
-    if not isinstance(blocks, list) or not blocks or not all(isinstance(block, int) and block >= 0 for block in blocks):
+    if not isinstance(container, dict) or container.get("format") != "TBR1":
         raise ValueError("malformed RSA ciphertext")
-    return blocks
+    return container
 
 
 def decrypt_profile_field(serialized: bytes, private_key) -> str:

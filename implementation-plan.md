@@ -134,13 +134,13 @@ authority-bridged/
 
 **`app.py`** — Flask application factory. Creates the app, loads `config.py`, registers blueprints (`auth`, `posts`, `chat`, `evidence`, `admin`), registers the `database/db.py` teardown hook, sets cookie flags. **Must not** contain route logic, SQL, or cryptography. Depends on: `config.py`, every blueprint's `routes.py`, `database/db.py`.
 
-**`config.py`** — Reads environment variables (`.env`) into typed config objects: `ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`, `RSA_KEY_BITS`, `DATABASE_PATH`, `EMAIL_API_KEY`, `EMAIL_API_PROVIDER`, `SESSION_COOKIE_*`, `OTP_EXPIRY_SECONDS`, `MAX_EVIDENCE_SIZE_BYTES`. No secrets hard-coded. No business logic. Local development/demo sets `SESSION_COOKIE_SECURE=False`; production/HTTPS may set it `True`.
+**`config.py`** — Reads environment variables (`.env`) into typed config objects: `ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`, `RSA_PRIME_BITS`, `RSA_PUBLIC_EXPONENT`, `DATABASE_PATH`, `EMAIL_API_KEY`, `EMAIL_API_PROVIDER`, `SESSION_COOKIE_*`, `OTP_EXPIRY_SECONDS`, `MAX_EVIDENCE_SIZE_BYTES`. No secrets hard-coded. No business logic. Local development/demo sets `SESSION_COOKIE_SECURE=False`; production/HTTPS may set it `True`.
 
-**`.env.example` / `.env`** — `.env` holds the decimal root RSA key integers (`ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`), `RSA_KEY_BITS=2048`, email API key, Flask `SECRET_KEY` (used only for CSRF/Flask session cookie signing if used, **not** for crypto). `.env` is git-ignored; `.env.example` documents required variable names with placeholder values. Root private material is never stored in SQLite or Git.
+**`.env.example` / `.env`** — `.env` holds the decimal root RSA key integers (`ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`), `RSA_PRIME_BITS=128`, `RSA_PUBLIC_EXPONENT=11`, email API key, Flask `SECRET_KEY` (used only for CSRF/Flask session cookie signing if used, **not** for crypto). `.env` is git-ignored; `.env.example` documents required variable names with placeholder values. Root private material is never stored in SQLite or Git.
 
 **`crypto/bigint_utils.py`** — Shared number-theory primitives used by both RSA and ECC: modular exponentiation (`mod_pow`), extended Euclidean algorithm / modular inverse (`mod_inverse`), probabilistic primality test (Miller–Rabin), random prime generation, `gcd`. **Must not** import Flask, SQLite, or any route/template code. Pure math only, so it is trivially unit-testable and reusable by `rsa.py` and `ecc.py` without duplication.
 
-**`crypto/rsa.py`** — RSA key generation (`p`, `q`, `n`, `φ(n)`, `e`, `d`), `rsa_encrypt`, `rsa_decrypt`, and the OAEP-style SHA-256/MGF1 chunking/padding layer that turns arbitrary-length bytes into a sequence of RSA-sized integer blocks and back. Depends only on `crypto/bigint_utils.py`. Must not know about SQLite, Flask, or which purpose (profile vs evidence) it is being used for — purpose is the caller's concern (`key_manager.py`).
+**`crypto/rsa.py`** — Educational textbook RSA key generation (`p`, `q`, `n`, `φ(n)`, `e=11`, `d`), raw operations, and `TBR1` safe byte chunking. Depends only on `crypto/bigint_utils.py`. It intentionally has no modern padding and must not know about SQLite, Flask, or which purpose (profile vs evidence) it is being used for — purpose is the caller's concern (`key_manager.py`).
 
 **`crypto/ecc_curve.py`** — The chosen elliptic curve domain parameters (`p`, `a`, `b`, `G`, curve order `n`) and the raw point arithmetic: point addition, point doubling, scalar multiplication (double-and-add), point validity check. No encoding, no encryption, no Flask/SQLite.
 
@@ -262,7 +262,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 **Implementation Tasks:**
 - [ ] Create the directory tree from [Section 1](#1-final-repository-structure).
 - [ ] Add `requirements.txt` (Flask, pytest, python-dotenv, the chosen email SDK/`requests`).
-- [ ] Write `config.py` reading `DATABASE_PATH`, `ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`, `RSA_KEY_BITS` (default/locked application value: 2048), `EMAIL_API_KEY`, `EMAIL_API_PROVIDER`, `OTP_EXPIRY_SECONDS`, `MAX_EVIDENCE_SIZE_BYTES` (default 200 KB), `SESSION_COOKIE_*` from environment variables via `python-dotenv`.
+- [ ] Write `config.py` reading `DATABASE_PATH`, `ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`, `RSA_PRIME_BITS` (default/locked application value: 128), `RSA_PUBLIC_EXPONENT` (default 11), `EMAIL_API_KEY`, `EMAIL_API_PROVIDER`, `OTP_EXPIRY_SECONDS`, `MAX_EVIDENCE_SIZE_BYTES` (default 200 KB), `SESSION_COOKIE_*` from environment variables via `python-dotenv`.
 - [ ] Write a minimal `app.py` application factory with a `/health` route returning `200 OK`, so the phase has something demonstrable.
 - [ ] Write `.env.example` listing every variable name `config.py` expects, with placeholder (non-real) values.
 - [ ] Write `.gitignore` covering `.env`, `*.db`, `encrypted_uploads/`, `__pycache__/`, `.pytest_cache/`.
@@ -312,7 +312,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 ### Phase 2 — RSA implementation
 
-**Goal:** A from-scratch, unit-tested RSA module: key generation, encryption, decryption, OAEP-style SHA-256/MGF1 padding, and chunking so arbitrary-length byte data can round-trip.
+**Goal:** A from-scratch, unit-tested educational textbook RSA module: key generation, raw encryption/decryption, and metadata-bearing safe chunking so arbitrary-length byte data can round-trip.
 
 **Files Created or Modified:**
 `crypto/bigint_utils.py`, `crypto/rsa.py`, `tests/unit/test_rsa.py`.
@@ -322,9 +322,9 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 - [ ] Implement `mod_inverse(a, m)` (extended Euclidean algorithm) in `bigint_utils.py`.
 - [ ] Implement `is_probable_prime(n, rounds=...)` (Miller–Rabin) in `bigint_utils.py`.
 - [ ] Implement `generate_prime(bit_length)` in `bigint_utils.py` using `secrets.randbits` + `is_probable_prime`.
-- [ ] Implement `rsa_generate_keypair(bit_length)` in `rsa.py`: pick `p`, `q`, compute `n = p*q`, `φ(n) = (p-1)(q-1)`, pick `e` (commonly 65537, verified `gcd(e, φ(n)) == 1`), compute `d = mod_inverse(e, φ(n))`. Returns `{"public": (e, n), "private": (d, n)}`. Application-generated RSA keys use `RSA_KEY_BITS=2048`; unit tests may use smaller keys where OAEP constraints permit.
-- [ ] Implement OAEP-style padding built by the team using `hashlib.sha256` and a hand-written MGF1 helper. `pad_block(data_bytes, block_size)` / `unpad_block(...)` must be probabilistic and integrity-checking; do not silently fall back to textbook unpadded RSA. If true OAEP-style padding proves disproportionately complex, pause and document the proposed simplification before changing this plan.
-- [ ] Implement `rsa_encrypt_bytes(data: bytes, public_key) -> list[int]` and `rsa_decrypt_bytes(blocks: list[int], private_key) -> bytes`, splitting input into OAEP-sized chunks smaller than the RSA modulus byte-length so `int.from_bytes(block) < n`.
+- [ ] Implement `rsa_generate_keypair(prime_bits=128, public_exponent=11)` in `rsa.py`: pick distinct `p`, `q`, compute `n = p*q`, `φ(n) = (p-1)(q-1)`, verify `gcd(e, φ(n)) == 1`, and compute `d = mod_inverse(e, φ(n))`. Returns `{"public": (e, n), "private": (d, n)}`.
+- [ ] Implement textbook RSA directly as `C = M^e mod n` and `M = C^d mod n`, using manual square-and-multiply. No OAEP, MGF1, PKCS#1, or replacement padding is used.
+- [ ] Implement `rsa_encrypt_bytes(data: bytes, public_key)` and `rsa_decrypt_bytes(container, private_key)` using `TBR1` metadata (`length`, `chunk_size`, `block_count`, and ciphertext blocks), with chunk size `(n.bit_length() - 1) // 8`.
 - [ ] Implement `rsa_encrypt(m_int, public_key) -> int` and `rsa_decrypt(c_int, private_key) -> int` as the raw single-integer primitives the byte-level functions build on.
 - [ ] Add docstring/comments on every function explaining the cryptographic step for report section 3.
 
@@ -341,8 +341,8 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 - `test_roundtrip_single_integer` — encrypt/decrypt a known integer, assert equality.
 - `test_roundtrip_bytes_various_lengths` — parametrized over `b""`, `b"A"`, a full block, and several blocks.
 - `test_ciphertext_differs_from_plaintext` — asserts `C != M`.
-- `test_invalid_ciphertext_raises` — feed a corrupted block (e.g., off-by-one integer) and assert OAEP-style unpadding rejects it with a handled exception.
-- `test_key_generation_produces_valid_keypair` — asserts `e*d ≡ 1 (mod φ(n))` relationship holds and `n` has the requested bit length.
+- `test_invalid_ciphertext_raises` — feed malformed metadata or an out-of-range block and assert decryption rejects it with a handled exception.
+- `test_key_generation_produces_valid_keypair` — asserts `e*d ≡ 1 (mod φ(n))`, `e=11`, and an approximately 256-bit modulus.
 
 **Report Evidence:** Terminal output of the RSA round-trip test passing; a printed example showing `M`, `C`, and recovered `M` side by side (for report section 3); the `rsa_generate_keypair` output for a demo key (public parts only) to illustrate `(e, n)`/`(d, n)`.
 
@@ -481,7 +481,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 **Completion Criteria:** Phase complete only if:
 - registering a user results in a `users` row whose `encrypted_name`/`encrypted_email`/`encrypted_contact` are not human-readable,
 - `password_hash`/`password_salt` are stored, and the raw password is not present anywhere in the database,
-- re-encrypting the same plaintext with the same key on two different calls produces different ciphertext bytes under OAEP-style randomized padding,
+- re-encrypting the same plaintext with the same key on two different calls produces identical ciphertext bytes under deterministic textbook RSA,
 - public registration cannot create an Admin even if a crafted request submits `role=admin`,
 - the controlled seed/setup process can create an Admin only after hashing and RSA profile encryption are available,
 - registering with an already-used email is rejected.
@@ -1162,7 +1162,7 @@ Unit tests (`tests/unit/`) never import `flask` or hit HTTP; integration tests (
 |---|---|---|---|
 | 1 | Introduction/System Overview | Architecture diagram (Section 50 of `project-context.md`, reproduced with final repo structure) | Phase 19 |
 | 2 | Login and Registration | Screenshot: public register form with no role selector → `users` row with `role=student`, `email_lookup_hash`, and ciphertext profile fields; controlled Admin seed output; screenshot: login → OTP email → success | Phases 6, 7, 8 |
-| 3 | RSA/ECC Encryption | RSA OAEP-style round-trip terminal output + sample keypair; ECC round-trip terminal output + chosen `P`/`A`/`B`/`G`/`N` and sample `Q=dG`; `posts` row showing ECC JSON ciphertext; `evidence/*.enc` file | Phases 2, 3, 9, 10 |
+| 3 | RSA/ECC Encryption | Textbook RSA round-trip terminal output + sample keypair; ECC round-trip terminal output + chosen `P`/`A`/`B`/`G`/`N` and sample `Q=dG`; `posts` row showing ECC JSON ciphertext; `evidence/*.enc` file | Phases 2, 3, 9, 10 |
 | 4 | Password Hashing/Salting | `users.password_hash`/`password_salt` screenshot; unit test output for hash/verify | Phase 6 |
 | 5 | 2FA | OTP email content (test double or provider log); `otp_codes` row showing only `otp_hash`/`otp_salt`; email-failure invalidation test; expiry test output | Phase 7 |
 | 6 | Key Management | `keys` table screenshot (ciphertext private keys); rotation before/after screenshot (Demo 10) | Phases 5, 17 |
@@ -1315,11 +1315,11 @@ Public `/register` creates `student` accounts only. The form must not show role 
 ### 2. Login, OTP, and session boundary
 Phase 7 implements password verification, OTP generation/storage/email/verification, and a pending-auth state. No authenticated session exists before OTP succeeds. Phase 8 implements `create_session()` and finalizes the OTP-success path by creating the first authenticated session. There is no requirement to regenerate a pre-OTP authenticated session.
 
-### 3. RSA padding
-RSA byte encryption uses an OAEP-style implementation built by the team using SHA-256 and MGF1. Do not silently fall back to textbook unpadded RSA. If OAEP-style padding proves disproportionately complex, pause and revise the plan explicitly before changing the padding design.
+### 3. RSA educational alignment
+RSA uses textbook RSA for this CSE447 demonstration: approximately 128-bit primes, a roughly 256-bit modulus, and `e=11`. Arbitrary bytes are split into safe chunks and stored in the `TBR1` container with length/chunk/block metadata. No padding is used. This is deterministic and not suitable for production deployment. Existing OAEP ciphertext is incompatible and must be discarded during the documented development-data reset.
 
 ### 4. RSA key size
-Application RSA key pairs and the root RSA key use 2048-bit moduli. The implementation remains educational/from-scratch and is not claimed to be production-hardened. `RSA_KEY_BITS=2048` is included in config for application-generated RSA keys; unit tests may use smaller keys where OAEP constraints permit.
+Application RSA key pairs and the preferred root RSA key use approximately 128-bit primes, yielding approximately 256-bit moduli, with `e=11`. Configuration uses `RSA_PRIME_BITS=128` and `RSA_PUBLIC_EXPONENT=11`. The implementation is intentionally educational and is not suitable for production deployment.
 
 ### 5. ECC parameters
 Use one fixed educational elliptic curve for the whole project. Its generator order `N` must be greater than 256, and `P`/`A`/`B`/`G`/`N` must be documented in `crypto/ecc_curve.py`, tests, and the report. Tests must validate the curve equation and generator order. The EC-ElGamal design remains unchanged.

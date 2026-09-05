@@ -12,7 +12,8 @@ class KeyManagerConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-key-manager-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
     ROOT_RSA_D = ""
@@ -20,7 +21,7 @@ class KeyManagerConfig:
 
 @pytest.fixture
 def app_with_keys(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     KeyManagerConfig.DATABASE_PATH = str(tmp_path / "keys.db")
     KeyManagerConfig.ROOT_RSA_E, KeyManagerConfig.ROOT_RSA_N = map(str, root["public"])
     KeyManagerConfig.ROOT_RSA_D = str(root["private"][0])

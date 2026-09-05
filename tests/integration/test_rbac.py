@@ -17,7 +17,8 @@ class AdminConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-admin-status-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ROOT_RSA_E = ROOT_RSA_D = ""
     OTP_EXPIRY_SECONDS = 300
     MAX_EVIDENCE_SIZE_BYTES = 200 * 1024
@@ -32,7 +33,7 @@ class AdminConfig:
 
 @pytest.fixture
 def admin_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     AdminConfig.DATABASE_PATH = str(tmp_path / "admin.db")
     AdminConfig.EVIDENCE_UPLOAD_DIR = str(tmp_path / "encrypted_uploads")
     AdminConfig.ROOT_RSA_E, AdminConfig.ROOT_RSA_N = map(str, root["public"])

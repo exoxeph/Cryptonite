@@ -4,6 +4,19 @@ Cryptonite is a CSE447 cryptography demonstration web application.
 
 This repository currently includes the Phase 5 key-management infrastructure. Application features are added phase by phase.
 
+## RSA Educational Parameters
+
+Cryptonite uses textbook RSA for classroom demonstration: two approximately
+128-bit primes, an approximately 256-bit modulus, and public exponent `e=11`.
+Arbitrary bytes are split into safe chunks and stored in the `TBR1` container.
+There is no modern padding; textbook RSA is deterministic and malleable and is
+not suitable for production deployment.
+
+Changing from the former OAEP development format is a breaking migration. For
+local demo data, remove the old SQLite database and encrypted evidence files,
+generate new root values, then run `bootstrap-keys` and reseed the demo data.
+Do not reuse old ciphertext with the new implementation.
+
 ## Setup
 
 ```powershell
@@ -20,7 +33,7 @@ Put the generated value in `.env` as `SECRET_KEY`. Do not use the example
 placeholder or commit `.env`; the application rejects known placeholders and
 requires a generated value at least 32 characters long.
 
-After placing a locally generated 2048-bit root RSA key in `.env` as the decimal
+After placing a locally generated educational root RSA key in `.env` as the decimal
 `ROOT_RSA_N`, `ROOT_RSA_E`, and `ROOT_RSA_D` values, initialize the operational
 keys with:
 
@@ -28,7 +41,7 @@ keys with:
 flask --app app:create_app bootstrap-keys
 ```
 
-Generate the root values with the project's `rsa_generate_keypair(2048)`
+Generate the root values with the project's `rsa_generate_keypair(128)`
 implementation and manually copy only the decimal values into `.env`. Never
 commit `.env` or print the private exponent in shared evidence. The bootstrap
 command initializes SQLite and creates one active key for each configured
@@ -105,10 +118,10 @@ local application state and encrypted user data.
    docker compose build
    ```
 
-4. Generate the required 2048-bit root RSA values inside the image:
+4. Generate the required educational root RSA values inside the image:
 
    ```powershell
-   docker compose run --rm --entrypoint python cryptonite -c "from crypto.rsa import rsa_generate_keypair; k=rsa_generate_keypair(2048); print('ROOT_RSA_E='+str(k['public'][0])); print('ROOT_RSA_N='+str(k['public'][1])); print('ROOT_RSA_D='+str(k['private'][0]))"
+   docker compose run --rm --entrypoint python cryptonite -c "from crypto.rsa import rsa_generate_keypair; k=rsa_generate_keypair(128); print('ROOT_RSA_E='+str(k['public'][0])); print('ROOT_RSA_N='+str(k['public'][1])); print('ROOT_RSA_D='+str(k['private'][0]))"
    ```
 
    Copy the three printed lines into `.env`. Keep `ROOT_RSA_D` private. The

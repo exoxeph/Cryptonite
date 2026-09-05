@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from collections import OrderedDict
 
 from flask import current_app
 
@@ -18,6 +19,8 @@ ALLOWED_MIME_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
 }
+_EVIDENCE_CACHE_LIMIT = 32
+_EVIDENCE_CACHE = OrderedDict()
 
 
 class EvidenceNotFoundError(ValueError):
@@ -60,11 +63,17 @@ def store_evidence(post_id: int, owner_id: int, filename: str, file_bytes: bytes
                 "UPDATE evidence SET file_path = ? WHERE id = ?",
                 (f"encrypted_uploads/evidence_{evidence_id}.enc", evidence_id),
             )
+        _cache_evidence(evidence_id, active_key["version"], filename, file_bytes, mimetype)
         return evidence_id
     except Exception:
         if evidence_path is not None:
             evidence_path.unlink(missing_ok=True)
         raise
+
+
+def validate_evidence_upload(filename: str, mimetype: str, file_bytes: bytes) -> None:
+    """Validate an upload before a related complaint is created."""
+    _validate_upload(filename, mimetype, file_bytes)
 
 
 def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
@@ -80,6 +89,9 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
         raise PermissionError("evidence access denied")
 
     key = get_key_by_version("RSA_EVIDENCE", row["rsa_key_version"])
+    cached = _get_cached_evidence(row["id"], row["rsa_key_version"])
+    if cached is not None:
+        return cached
     try:
         ciphertext = _deserialize_ciphertext(_evidence_path(row["id"]).read_bytes())
         file_bytes = rsa_decrypt_bytes(ciphertext, key["private_key"])
@@ -87,7 +99,29 @@ def read_evidence(evidence_id: int, requester) -> tuple[str, bytes, str]:
         filename = rsa_decrypt_bytes(filename_ciphertext, key["private_key"]).decode("utf-8")
     except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("evidence could not be read") from exc
-    return filename, file_bytes, _mimetype_for_filename(filename)
+    mimetype = _mimetype_for_filename(filename)
+    _cache_evidence(row["id"], row["rsa_key_version"], filename, file_bytes, mimetype)
+    return filename, file_bytes, mimetype
+
+
+def _evidence_cache_key(evidence_id: int, key_version: int) -> tuple[str, int, int]:
+    return (str(current_app.config["DATABASE_PATH"]), evidence_id, key_version)
+
+
+def _cache_evidence(evidence_id: int, key_version: int, filename: str, file_bytes: bytes, mimetype: str) -> None:
+    cache_key = _evidence_cache_key(evidence_id, key_version)
+    _EVIDENCE_CACHE[cache_key] = (filename, file_bytes, mimetype)
+    _EVIDENCE_CACHE.move_to_end(cache_key)
+    while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
+        _EVIDENCE_CACHE.popitem(last=False)
+
+
+def _get_cached_evidence(evidence_id: int, key_version: int):
+    cache_key = _evidence_cache_key(evidence_id, key_version)
+    cached = _EVIDENCE_CACHE.get(cache_key)
+    if cached is not None:
+        _EVIDENCE_CACHE.move_to_end(cache_key)
+    return cached
 
 
 def list_evidence(post_id: int, requester) -> list[dict]:
@@ -140,20 +174,20 @@ def safe_download_name(filename: str) -> str:
     return cleaned or "evidence"
 
 
-def _serialize_ciphertext(blocks: list[int]) -> bytes:
-    if not isinstance(blocks, list) or not all(type(block) is int and block >= 0 for block in blocks):
+def _serialize_ciphertext(container: dict) -> bytes:
+    if not isinstance(container, dict) or container.get("format") != "TBR1":
         raise ValueError("invalid RSA ciphertext")
-    return json.dumps(blocks, separators=(",", ":")).encode("utf-8")
+    return json.dumps(container, separators=(",", ":")).encode("utf-8")
 
 
-def _deserialize_ciphertext(value: bytes) -> list[int]:
+def _deserialize_ciphertext(value: bytes) -> dict:
     try:
-        blocks = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
+        container = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
     except (UnicodeDecodeError, json.JSONDecodeError, AttributeError) as exc:
         raise ValueError("malformed RSA ciphertext") from exc
-    if not isinstance(blocks, list) or not blocks or not all(type(block) is int and block >= 0 for block in blocks):
+    if not isinstance(container, dict) or container.get("format") != "TBR1":
         raise ValueError("malformed RSA ciphertext")
-    return blocks
+    return container
 
 
 def _mimetype_for_filename(filename: str) -> str:

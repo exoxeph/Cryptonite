@@ -30,7 +30,8 @@ class Config:
     ROOT_RSA_N = os.getenv("ROOT_RSA_N", "")
     ROOT_RSA_E = os.getenv("ROOT_RSA_E", "")
     ROOT_RSA_D = os.getenv("ROOT_RSA_D", "")
-    RSA_KEY_BITS = _get_int("RSA_KEY_BITS", 2048)
+    RSA_PRIME_BITS = _get_int("RSA_PRIME_BITS", 128)
+    RSA_PUBLIC_EXPONENT = _get_int("RSA_PUBLIC_EXPONENT", 11)
 
     EMAIL_API_PROVIDER = os.getenv("EMAIL_API_PROVIDER", "")
     EMAIL_API_KEY = os.getenv("EMAIL_API_KEY", "")

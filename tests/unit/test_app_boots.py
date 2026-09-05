@@ -10,7 +10,8 @@ class BootConfig:
     AUTH_SESSION_COOKIE_NAME = "authority_bridged_session"
     SESSION_COOKIE_SECURE = False
     MAX_EVIDENCE_SIZE_BYTES = 200 * 1024
-    RSA_KEY_BITS = 2048
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
 
 
 def test_app_requires_secret_key():
@@ -33,7 +34,8 @@ def test_app_factory_returns_app():
     app = create_app(BootConfig)
 
     assert app is not None
-    assert app.config["RSA_KEY_BITS"] == 2048
+    assert app.config["RSA_PRIME_BITS"] == 128
+    assert app.config["RSA_PUBLIC_EXPONENT"] == 11
     assert app.config["SESSION_COOKIE_SECURE"] is False
     assert app.config["MAX_EVIDENCE_SIZE_BYTES"] == 200 * 1024
     assert "bootstrap-keys" in app.cli.commands

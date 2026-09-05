@@ -142,12 +142,10 @@ def _unwrap_private_key(wrapped: bytes) -> bytes:
     if not isinstance(wrapped, bytes):
         raise TypeError("wrapped private key must be bytes")
     try:
-        blocks = json.loads(wrapped.decode("utf-8"))
-        if not isinstance(blocks, list) or not blocks or not all(
-            isinstance(block, int) and block >= 0 for block in blocks
-        ):
+        container = json.loads(wrapped.decode("utf-8"))
+        if not isinstance(container, dict) or container.get("format") != "TBR1":
             raise ValueError("wrapped private key must contain ciphertext integers")
-        return rsa_decrypt_bytes(blocks, _root_private_key())
+        return rsa_decrypt_bytes(container, _root_private_key())
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError("malformed wrapped private key") from exc
 
@@ -183,10 +181,8 @@ def _root_integer(name: str) -> int:
 
 
 def _validate_root_modulus(modulus: int) -> None:
-    if modulus <= 0:
+    if modulus <= 1:
         raise ValueError("ROOT_RSA_N must be positive")
-    if (modulus.bit_length() + 7) // 8 <= 2 * 32 + 2:
-        raise ValueError("ROOT_RSA_N is too small for SHA-256 OAEP-style wrapping")
 
 
 def _validate_purpose_and_algorithm(purpose: str, algorithm: str | None = None) -> str:
@@ -200,7 +196,10 @@ def _validate_purpose_and_algorithm(purpose: str, algorithm: str | None = None) 
 
 def _generate_material(algorithm: str):
     if algorithm == "RSA":
-        pair = rsa_generate_keypair(current_app.config["RSA_KEY_BITS"])
+        pair = rsa_generate_keypair(
+            current_app.config.get("RSA_PRIME_BITS", 128),
+            current_app.config.get("RSA_PUBLIC_EXPONENT", 11),
+        )
         return pair["public"], pair["private"]
     if algorithm == "ECC":
         pair = ecc_generate_keypair()

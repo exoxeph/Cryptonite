@@ -16,7 +16,8 @@ class AuthConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-auth-flow-123456789"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
     ROOT_RSA_D = ""
@@ -34,7 +35,7 @@ class AuthConfig:
 
 @pytest.fixture
 def auth_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     AuthConfig.DATABASE_PATH = str(tmp_path / "auth.db")
     AuthConfig.ROOT_RSA_E, AuthConfig.ROOT_RSA_N = map(str, root["public"])
     AuthConfig.ROOT_RSA_D = str(root["private"][0])
