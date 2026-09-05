@@ -204,3 +204,16 @@ def test_verify_route_requires_pending_auth_and_creates_session_after_otp(auth_a
             assert "pending_auth_user_id" not in flask_session
     with auth_app.app_context():
         assert db.query_one("SELECT COUNT(*) AS count FROM sessions")["count"] == 1
+
+
+def test_dev_otp_print_mode_preserves_login_flow_without_email(auth_app, capsys):
+    auth_app.config["OTP_EMAIL_ENABLED"] = False
+    auth_app.config["OTP_DEV_PRINT_CODE"] = True
+    with auth_app.test_client() as client:
+        _register(client, "dev@example.com")
+        response = client.post("/login", data={"email": "dev@example.com", "password": "secret"})
+        assert response.status_code == 302
+        output = capsys.readouterr().out
+        code = output.rsplit(": ", 1)[-1].strip()
+        assert len(code) == 6 and code.isdigit()
+        assert client.post("/verify-otp", data={"otp": code}).status_code == 302

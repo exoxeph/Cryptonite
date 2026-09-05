@@ -71,6 +71,15 @@ def login():
             valid_password = False
         if not valid_password:
             error = "Invalid email or password."
+        elif not current_app.config.get("OTP_EMAIL_ENABLED", True):
+            if not current_app.config.get("OTP_DEV_PRINT_CODE", False):
+                error = "Email verification is temporarily paused. Please try again later."
+            else:
+                code = otp.generate_otp()
+                otp.store_otp(row["id"], code)
+                print(f"[DEV ONLY] Cryptonite OTP for {normalized_email}: {code}")
+                session["pending_auth_user_id"] = row["id"]
+                return redirect(url_for("auth.verify_otp"))
         else:
             code = otp.generate_otp()
             otp_id = otp.store_otp(row["id"], code)

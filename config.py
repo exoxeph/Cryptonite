@@ -37,6 +37,8 @@ class Config:
     EMAIL_FROM_ADDRESS = os.getenv("EMAIL_FROM_ADDRESS", "")
 
     OTP_EXPIRY_SECONDS = _get_int("OTP_EXPIRY_SECONDS", 300)
+    OTP_EMAIL_ENABLED = _get_bool("OTP_EMAIL_ENABLED", True)
+    OTP_DEV_PRINT_CODE = _get_bool("OTP_DEV_PRINT_CODE", False)
     MAX_EVIDENCE_SIZE_BYTES = _get_int("MAX_EVIDENCE_SIZE_BYTES", 200 * 1024)
 
     # Flask's signed cookie is limited to the temporary pending-OTP marker.
