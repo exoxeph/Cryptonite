@@ -1,10 +1,10 @@
-"""ECC-confidential, HMAC-authenticated private complaint conversations."""
+"""ECC-confidential, CMAC-authenticated private complaint conversations."""
 
 from datetime import datetime, timezone
 
 from auth.rbac import can_access_chat
 from crypto.ecc_encoding import deserialize_ecc_ciphertext, ecc_decrypt_bytes, ecc_encrypt_bytes, serialize_ecc_ciphertext
-from crypto.hmac_custom import generate_mac, verify_mac
+from crypto.cmac_auth import compute_cmac, verify_cmac
 from crypto.key_manager import get_active_key, get_key_by_version
 from database import db
 
@@ -29,18 +29,18 @@ def send_message(post_id: int, sender_id: int, plaintext: str) -> int:
     plaintext = plaintext.strip()
 
     ecc_key = get_active_key("ECC_CHAT")
-    hmac_key = get_active_key("HMAC_CHAT")
+    cmac_key = get_active_key("CMAC_CHAT")
     ciphertext = serialize_ecc_ciphertext(ecc_encrypt_bytes(plaintext.encode("utf-8"), ecc_key["public_key"]))
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    mac = generate_mac(
-        hmac_key["private_key"],
+    mac = compute_cmac(
+        cmac_key["private_key"],
         build_chat_mac_input(post_id, sender_id, created_at, ciphertext),
     )
     return db.execute(
         """INSERT INTO chat_messages
-           (post_id, sender_id, ciphertext, mac, ecc_key_version, hmac_key_version, created_at)
+           (post_id, sender_id, ciphertext, mac, ecc_key_version, cmac_key_version, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (post_id, sender_id, ciphertext, mac, ecc_key["version"], hmac_key["version"], created_at),
+        (post_id, sender_id, ciphertext, mac, ecc_key["version"], cmac_key["version"], created_at),
     ).lastrowid
 
 
@@ -59,9 +59,9 @@ def get_conversation(post_id: int, requester) -> list[dict]:
     for row in rows:
         sender = db.query_one("SELECT id, role FROM users WHERE id = ?", (row["sender_id"],))
         display = "Admin" if sender is not None and sender["role"] == "admin" else "Owner"
-        hmac_key = get_key_by_version("HMAC_CHAT", row["hmac_key_version"])
-        valid = verify_mac(
-            hmac_key["private_key"],
+        cmac_key = get_key_by_version("CMAC_CHAT", row["cmac_key_version"])
+        valid = verify_cmac(
+            cmac_key["private_key"],
             build_chat_mac_input(row["post_id"], row["sender_id"], row["created_at"], row["ciphertext"]),
             row["mac"],
         )

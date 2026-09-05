@@ -134,10 +134,10 @@ def test_evidence_file_path_schema(app_with_temp_db):
     assert "encrypted_file_path" not in evidence_columns
 
 
-def test_chat_messages_schema_has_hmac_version_and_no_receiver(app_with_temp_db):
+def test_chat_messages_schema_has_cmac_version_and_no_receiver(app_with_temp_db):
     chat_columns = columns(app_with_temp_db, "chat_messages")
 
-    assert "hmac_key_version" in chat_columns
+    assert "cmac_key_version" in chat_columns
     assert "receiver_id" not in chat_columns
 
 

@@ -1,14 +1,14 @@
 CREATE TABLE IF NOT EXISTS keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    algorithm TEXT NOT NULL CHECK (algorithm IN ('RSA', 'ECC', 'HMAC')),
+    algorithm TEXT NOT NULL CHECK (algorithm IN ('RSA', 'ECC', 'CMAC-3DES')),
     purpose TEXT NOT NULL CHECK (
         purpose IN (
             'RSA_PROFILE',
             'RSA_EVIDENCE',
             'ECC_POSTS',
             'ECC_CHAT',
-            'HMAC_CHAT',
-            'HMAC_SESSION'
+            'CMAC_CHAT',
+            'CMAC_SESSION'
         )
     ),
     version INTEGER NOT NULL CHECK (version > 0),
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     ciphertext TEXT NOT NULL,
     mac BLOB NOT NULL,
     ecc_key_version INTEGER NOT NULL,
-    hmac_key_version INTEGER NOT NULL,
+    cmac_key_version INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
     FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE

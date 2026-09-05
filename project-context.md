@@ -476,11 +476,13 @@ The cryptographic algorithms required by the course must be visibly implemented 
 
 The project must exclusively use **asymmetric encryption algorithms for application-data encryption**.
 
-Symmetric encryption such as:
+Symmetric encryption must not be used to encrypt application data. The sole
+integrity/authentication exception is CMAC-TripleDES, which is used only to
+produce MAC tags and never to encrypt application data. Do not introduce a
+symmetric cipher for confidentiality such as:
 
 * AES,
 * DES,
-* 3DES,
 * ChaCha20,
 
 must NOT be introduced.
@@ -715,9 +717,9 @@ The faculty specifically wants MAC demonstrated through the private Admin ↔ St
 
 Use:
 
-# HMAC-SHA256
+# CMAC-TripleDES
 
-HMAC is used for **integrity**, not confidentiality.
+CMAC with TripleDES is used for **integrity**, not confidentiality. The project uses a 24-byte CMAC key and stores an 8-byte tag. TripleDES is used only inside CMAC because it matches the CSE447 demonstration; it is not used to encrypt application data and is not a production recommendation.
 
 ECC answers:
 
@@ -725,7 +727,7 @@ ECC answers:
 Can an unauthorized person read the message?
 ```
 
-HMAC answers:
+CMAC answers:
 
 ```text
 Has someone modified the message?
@@ -747,7 +749,7 @@ should be able to access this conversation.
 
 Other students cannot access it.
 
-Each chat conversation belongs to a complaint.
+Each chat conversation belongs to a complaint. The authenticated chat fields are `post_id`, `sender_id`, `timestamp`, and serialized ciphertext; there is no receiver field.
 
 Possible message fields:
 
@@ -755,10 +757,10 @@ Possible message fields:
 message_id
 post_id
 sender_id
-receiver_id
 ciphertext
 mac
 ecc_key_version
+cmac_key_version
 timestamp
 ```
 
@@ -775,21 +777,19 @@ ECC encryption
        ↓
 Ciphertext
        ↓
-Generate HMAC
+Generate CMAC
        ↓
 Store ciphertext + MAC
 ```
 
 Calculate the MAC over important message metadata and ciphertext.
 
-Suggested MAC input:
+MAC input:
 
 ```text
 post_id
 ||
 sender_id
-||
-receiver_id
 ||
 timestamp
 ||
@@ -807,7 +807,7 @@ When loading a message:
 ```text
 Retrieve ciphertext + stored MAC
              ↓
-Recalculate HMAC
+Recalculate CMAC
              ↓
 Compare MACs
         /             \
@@ -831,40 +831,11 @@ Possible unauthorized modification detected.
 
 ---
 
-# 23. HMAC Implementation
+# 23. CMAC Implementation
 
-Do not simply call a complete HMAC library function and claim HMAC was implemented from scratch.
+Use the course CMAC API with TripleDES rather than reimplementing CMAC internals. The construction is delegated to the `cryptography` library, as in the classroom demonstration. CMAC provides integrity and authentication only; it does not provide confidentiality.
 
-Implement the HMAC construction manually.
-
-Conceptually:
-
-```text
-HMAC(K, m)
-=
-H(
-    (K' XOR opad)
-    ||
-    H(
-        (K' XOR ipad)
-        ||
-        m
-    )
-)
-```
-
-Implementation includes:
-
-* key normalization,
-* inner pad,
-* outer pad,
-* XOR,
-* inner hash,
-* outer hash.
-
-Using an underlying SHA-256 hash implementation/library may be acceptable unless the faculty explicitly requires SHA-256 itself to be written from scratch.
-
-Do NOT use HMAC as encryption.
+Do NOT use CMAC as encryption.
 
 ---
 
@@ -888,7 +859,7 @@ Prefer something conceptually like:
 crypto/
     rsa.py
     ecc.py
-    hmac_utils.py
+    cmac_auth.py
     key_manager.py
 ```
 
@@ -930,8 +901,8 @@ RSA_PROFILE
 RSA_EVIDENCE
 ECC_POSTS
 ECC_CHAT
-HMAC_CHAT
-HMAC_SESSION
+CMAC_CHAT
+CMAC_SESSION
 ```
 
 Do not hard-code private keys inside source files.
@@ -1170,7 +1141,7 @@ active/revoked status
 
 # 33. Session Token Integrity
 
-Use HMAC to protect session-token information.
+Use CMAC to protect session-token information.
 
 Conceptually:
 
@@ -1185,7 +1156,7 @@ expiry
 is signed using:
 
 ```text
-HMAC-SHA256
+CMAC-TripleDES
 ```
 
 On every authenticated request:
@@ -1193,7 +1164,7 @@ On every authenticated request:
 ```text
 Read session
       ↓
-Verify HMAC/signature
+Verify CMAC/signature
       ↓
 Check expiration
       ↓
@@ -1318,10 +1289,10 @@ chat_messages
 id
 post_id
 sender_id
-receiver_id
 ciphertext
 mac
 ecc_key_version
+cmac_key_version
 created_at
 ```
 
@@ -1640,7 +1611,7 @@ authority-bridged/
 │   ├── __init__.py
 │   ├── rsa.py
 │   ├── ecc.py
-│   ├── hmac_custom.py
+│   ├── cmac_auth.py
 │   ├── hashing.py
 │   └── key_manager.py
 │
@@ -1707,7 +1678,7 @@ RSA → profiles + evidence + key protection
 
 ECC / EC-ElGamal → posts + responses + chat
 
-HMAC-SHA256 → chat integrity + session integrity
+CMAC-TripleDES → chat integrity + session integrity
 
 SHA-256 + salt → password protection
 
@@ -1722,16 +1693,18 @@ If a technical issue requires changing this design, explain the problem before c
 
 ## Rule 2 — Do not introduce symmetric encryption
 
-Do not solve difficult encryption problems by introducing:
+Do not solve difficult encryption problems by introducing a symmetric cipher
+for application-data confidentiality:
 
 ```text
 AES
 Fernet
-DES
 ChaCha20
 ```
 
-The assignment explicitly prohibits symmetric encryption for the required application-data encryption.
+The assignment explicitly prohibits symmetric encryption for required
+application-data encryption. CMAC-TripleDES remains allowed only for
+integrity/authentication tags and session-token protection.
 
 ---
 
@@ -1871,7 +1844,7 @@ The intended high-level flow is:
               │                               │
        Session creation                Evidence upload
               │                               │
-       HMAC-protected                   RSA encryption
+       CMAC-protected                   RSA encryption
           session                            │
                                       Admin accesses
                                             │
@@ -1883,7 +1856,7 @@ The intended high-level flow is:
                                             │
                                   ECC confidentiality
                                             +
-                                      HMAC integrity
+                                      CMAC integrity
 ```
 
 ---
@@ -1898,13 +1871,13 @@ The intended high-level flow is:
 | Private chat confidentiality   | ECC / EC-ElGamal                              |
 | Evidence confidentiality       | RSA block encryption                          |
 | Password protection            | Salt + SHA-256                                |
-| Chat integrity                 | HMAC-SHA256                                   |
-| Session integrity              | HMAC-SHA256                                   |
+| Chat integrity                 | CMAC-TripleDES                                   |
+| Session integrity              | CMAC-TripleDES                                   |
 | Second factor                  | Email OTP                                     |
 | API usage                      | Email delivery API                            |
 | Key lifecycle                  | Versioned Key Management Module               |
 | Authorization                  | RBAC                                          |
-| Session protection             | Random session + expiry + HMAC + invalidation |
+| Session protection             | Random session + expiry + CMAC + invalidation |
 
 ---
 
@@ -1925,7 +1898,7 @@ Admin acknowledgement
 private Admin-owner chat
 RSA
 ECC
-HMAC
+CMAC
 key rotation
 RBAC
 secure sessions

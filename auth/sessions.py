@@ -1,4 +1,4 @@
-"""Server-revocable, HMAC-protected authenticated sessions for Phase 8."""
+"""Server-revocable, CMAC-protected authenticated sessions for Phase 8."""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -6,7 +6,7 @@ import secrets
 
 from flask import current_app, request
 
-from crypto.hmac_custom import generate_mac, verify_mac
+from crypto.cmac_auth import compute_cmac, verify_cmac
 from crypto.key_manager import get_active_key
 from database import db
 
@@ -19,7 +19,7 @@ def create_session(user) -> str:
     session_id = secrets.token_urlsafe(32)
     expires_at = _format_expiry(_utc_now() + timedelta(seconds=current_app.config["SESSION_LIFETIME_SECONDS"]))
     session_id_hash = hashlib.sha256(session_id.encode("ascii")).digest()
-    signature = generate_mac(_session_hmac_key(), _payload(session_id, user_id, expires_at)).hex()
+    signature = compute_cmac(_session_cmac_key(), _payload(session_id, user_id, expires_at)).hex()
     db.execute(
         "INSERT INTO sessions (session_id_hash, user_id, expires_at, active) VALUES (?, ?, ?, 1)",
         (session_id_hash, user_id, expires_at),
@@ -86,7 +86,7 @@ def _validated_session(cookie_value: str | None):
         user = db.query_one("SELECT * FROM users WHERE id = ?", (session_row["user_id"],))
         if user is None:
             return None
-        if not verify_mac(_session_hmac_key(), _payload(session_id, user["id"], cookie_expiry), signature):
+        if not verify_cmac(_session_cmac_key(), _payload(session_id, user["id"], cookie_expiry), signature):
             return None
         return user, session_row
     except (TypeError, ValueError, UnicodeEncodeError):
@@ -100,7 +100,7 @@ def _parse_cookie(cookie_value: str | None) -> tuple[str, str, bytes]:
     if len(parts) != 3:
         raise ValueError("invalid session cookie")
     session_id, expires_at, signature_hex = parts
-    if not session_id or not expires_at or len(signature_hex) != 64:
+    if not session_id or not expires_at or len(signature_hex) != 16:
         raise ValueError("invalid session cookie")
     if any(character not in "0123456789abcdef" for character in signature_hex):
         raise ValueError("invalid session cookie")
@@ -109,14 +109,14 @@ def _parse_cookie(cookie_value: str | None) -> tuple[str, str, bytes]:
 
 
 def _payload(session_id: str, user_id: int, expires_at: str) -> bytes:
-    """Build canonical, delimiter-safe HMAC input for the session cookie."""
+    """Build canonical, delimiter-safe CMAC input for the session cookie."""
     return f"{session_id}|{user_id}|{expires_at}".encode("ascii")
 
 
-def _session_hmac_key() -> bytes:
-    key = get_active_key("HMAC_SESSION")["private_key"]
-    if not isinstance(key, bytes) or len(key) != 32:
-        raise ValueError("active HMAC_SESSION key is invalid")
+def _session_cmac_key() -> bytes:
+    key = get_active_key("CMAC_SESSION")["private_key"]
+    if not isinstance(key, bytes) or len(key) != 24:
+        raise ValueError("active CMAC_SESSION key is invalid")
     return key
 
 

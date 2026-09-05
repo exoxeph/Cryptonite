@@ -29,8 +29,8 @@ PURPOSE_ALGORITHMS = {
     "RSA_EVIDENCE": "RSA",
     "ECC_POSTS": "ECC",
     "ECC_CHAT": "ECC",
-    "HMAC_CHAT": "HMAC",
-    "HMAC_SESSION": "HMAC",
+    "CMAC_CHAT": "CMAC-3DES",
+    "CMAC_SESSION": "CMAC-3DES",
 }
 VALID_STATUSES = {"ACTIVE", "RETIRED", "REVOKED"}
 
@@ -204,13 +204,13 @@ def _generate_material(algorithm: str):
     if algorithm == "ECC":
         pair = ecc_generate_keypair()
         return pair["public"], pair["private"]
-    if algorithm == "HMAC":
-        return None, secrets.token_bytes(32)
+    if algorithm == "CMAC-3DES":
+        return None, secrets.token_bytes(24)
     raise ValueError(f"unsupported algorithm: {algorithm}")
 
 
 def _serialize_public(algorithm: str, public_key) -> str | None:
-    if algorithm == "HMAC":
+    if algorithm == "CMAC-3DES":
         return None
     if algorithm == "RSA":
         e, n = _require_rsa_public(public_key)
@@ -232,9 +232,9 @@ def _serialize_private(algorithm: str, private_key) -> bytes:
         if not isinstance(private_key, int) or private_key <= 0:
             raise ValueError("invalid ECC private key")
         value = {"d": str(private_key)}
-    elif algorithm == "HMAC":
-        if not isinstance(private_key, bytes) or len(private_key) != 32:
-            raise ValueError("HMAC private key must be 32 bytes")
+    elif algorithm == "CMAC-3DES":
+        if not isinstance(private_key, bytes) or len(private_key) != 24:
+            raise ValueError("CMAC key must be 24 bytes")
         value = {"key": base64.b64encode(private_key).decode("ascii")}
     else:
         raise ValueError("unsupported algorithm")
@@ -244,7 +244,7 @@ def _serialize_private(algorithm: str, private_key) -> bytes:
 def _decode_row(row) -> dict:
     algorithm = row["algorithm"]
     expected = _validate_purpose_and_algorithm(row["purpose"])
-    if algorithm != expected or algorithm not in {"RSA", "ECC", "HMAC"}:
+    if algorithm != expected or algorithm not in {"RSA", "ECC", "CMAC-3DES"}:
         raise ValueError("stored key purpose/algorithm mismatch")
     try:
         public_key = _deserialize_public(algorithm, row["public_key"])
@@ -257,9 +257,9 @@ def _decode_row(row) -> dict:
 
 
 def _deserialize_public(algorithm: str, serialized: str | None):
-    if algorithm == "HMAC":
+    if algorithm == "CMAC-3DES":
         if serialized is not None:
-            raise ValueError("HMAC public key must be NULL")
+            raise ValueError("CMAC public key must be NULL")
         return None
     if not isinstance(serialized, str):
         raise ValueError("public key serialization must be text")
@@ -285,8 +285,8 @@ def _deserialize_private(algorithm: str, serialized: bytes):
             raise ValueError("invalid ECC private key")
         return d
     decoded = base64.b64decode(value["key"], validate=True)
-    if len(decoded) != 32:
-        raise ValueError("invalid HMAC private key length")
+    if len(decoded) != 24:
+        raise ValueError("invalid CMAC private key length")
     return decoded
 
 

@@ -162,7 +162,7 @@ def test_only_one_active_key_per_purpose_at_any_time(key_app):
                 (purpose,),
             )["count"] == 1
         key_manager.rotate_key("ECC_POSTS")
-        key_manager.rotate_key("HMAC_CHAT")
+        key_manager.rotate_key("CMAC_CHAT")
         for purpose in purposes:
             assert db.query_one(
                 "SELECT COUNT(*) AS count FROM keys WHERE purpose = ? AND status = 'ACTIVE'",
@@ -218,14 +218,14 @@ def test_crafted_admin_role_does_not_bypass_key_rbac(key_app):
 def test_key_page_exposes_metadata_not_secrets(key_app):
     admin = _user(key_app, "admin@example.com", role="admin", name="Admin")
     with key_app.app_context():
-        hmac = key_manager.get_active_key("HMAC_CHAT")
+        cmac = key_manager.get_active_key("CMAC_CHAT")
         root_private = str(key_app.config["ROOT_RSA_D"])
-        hmac_secret = hmac["private_key"].hex()
+        cmac_secret = cmac["private_key"].hex()
     with key_app.test_client() as client:
         _authenticate(client, key_app, admin)
         response = client.get("/admin/keys")
     body = response.data.decode("utf-8")
     assert "ECC_POSTS" in body and "ACTIVE" in body
     assert root_private not in body
-    assert hmac_secret not in body
+    assert cmac_secret not in body
     assert "encrypted_private_key" not in body

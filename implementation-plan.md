@@ -2,7 +2,7 @@
 
 **Source of truth:** [`project-context.md`](./project-context.md), [`crypto-plan.md`](./crypto-plan.md), and the locked implementation decisions in [Locked Decisions Before Implementation](#locked-decisions-before-implementation). This document turns those sources into an ordered, checkbox-level development roadmap. Where the original source files were silent, ambiguous, or contradictory, the locked decisions in this plan now control implementation.
 
-**Stack (frozen):** Python + Flask, SQLite, HTML/CSS/Jinja2 (Bootstrap optional), pytest, a transactional email API (Resend or Brevo) for OTP delivery only. From-scratch RSA and EC-ElGamal for application-data confidentiality, from-scratch HMAC-SHA256 for integrity, SHA-256 + salt for passwords. No AES/DES/3DES/ChaCha20/Fernet, no Docker/Redis/Celery/React/Next.js/microservices/cloud DB.
+**Stack (frozen):** Python + Flask, SQLite, HTML/CSS/Jinja2 (Bootstrap optional), pytest, `cryptography` for course-aligned CMAC with TripleDES, and a transactional email API (Resend or Brevo) for OTP delivery only. From-scratch RSA and EC-ElGamal provide application-data confidentiality, CMAC-TripleDES provides integrity/authentication, and SHA-256 + salt protects passwords. TripleDES is used only inside CMAC; no symmetric cipher encrypts application data. No Docker/Redis/Celery/React/Next.js/microservices/cloud DB.
 
 ---
 
@@ -46,7 +46,7 @@ authority-bridged/
 │   ├── ecc.py
 │   ├── ecc_encoding.py
 │   ├── hashing.py
-│   ├── hmac_custom.py
+│   ├── cmac_auth.py
 │   └── key_manager.py
 │
 ├── auth/
@@ -117,7 +117,7 @@ authority-bridged/
     │   ├── test_ecc.py
     │   ├── test_ecc_encoding.py
     │   ├── test_hashing.py
-    │   ├── test_hmac.py
+    │   ├── test_cmac.py
     │   └── test_key_manager.py
     └── integration/
         ├── test_auth_flow.py
@@ -150,15 +150,15 @@ authority-bridged/
 
 **`crypto/hashing.py`** — Password hashing: `generate_salt`, `hash_password(password, salt)`, `verify_password(password, salt, hash)`. Uses SHA-256. Must not use RSA/ECC. Must not be reachable from anywhere except `auth/`.
 
-**`crypto/hmac_custom.py`** — Manual HMAC-SHA256 construction (key normalization, `ipad`/`opad`, inner hash, outer hash): `generate_mac(key, message)`, `verify_mac(key, message, received_mac)`. May depend on a SHA-256 implementation/library for the underlying hash primitive (per `project-context.md` §23) but the HMAC construction itself must be hand-written — never call `hmac.new()`.
+**`crypto/cmac_auth.py`** — Course-aligned CMAC-TripleDES authentication: `compute_cmac(key, message)` and `verify_cmac(key, message, expected_tag)`. Uses a 24-byte secret and produces an 8-byte tag. CMAC is delegated to the `cryptography` library as in the course demonstration; it provides integrity/authentication only and does not encrypt application data.
 
-**`crypto/key_manager.py`** — The only module allowed to decide *which* key version to use for a given `purpose` (`RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `HMAC_CHAT`, `HMAC_SESSION`) and the only module allowed to unwrap (RSA-decrypt) a stored private key using the root key. It reads/writes the `keys` table (via `database/db.py`) and calls into `rsa.py`/`ecc.py` for key generation and root-key wrapping. Routes and services never touch the `keys` table directly or read `.env` for the root key — they call `key_manager.get_active_key(purpose)` / `get_key_by_version(purpose, version)`.
+**`crypto/key_manager.py`** — The only module allowed to decide *which* key version to use for a given `purpose` (`RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `CMAC_CHAT`, `CMAC_SESSION`) and the only module allowed to unwrap (RSA-decrypt) a stored private key using the root key. It reads/writes the `keys` table (via `database/db.py`) and calls into `rsa.py`/`ecc.py` for key generation and root-key wrapping. Routes and services never touch the `keys` table directly or read `.env` for the root key — they call `key_manager.get_active_key(purpose)` / `get_key_by_version(purpose, version)`.
 
 **`auth/routes.py`** — Registration, login, OTP verification, logout HTTP endpoints. Calls `crypto/hashing.py` (password), `crypto/key_manager.py` + `crypto/rsa.py` (profile field encryption), `auth/otp.py`, `auth/sessions.py`. **Must not** contain raw SQL or cryptographic algorithm code inline — those live in `crypto/` and `database/`.
 
 **`auth/otp.py`** — OTP generation, salted hashing, expiry check, verification, invalidation, and the call to `services/email_service.py` to deliver the code. Each OTP gets a fresh `otp_salt` and stores `SHA256(salt || OTP)`; the raw OTP is never persisted. If email delivery fails, the newly generated OTP is invalidated/deleted before the user sees a generic failure message.
 
-**`auth/sessions.py`** — Session creation, validation, HMAC signing/verification of the session token, expiration checks, revocation, logout invalidation, cookie construction. Uses `crypto/hmac_custom.py` + `crypto/key_manager.py` (purpose `HMAC_SESSION`). This is the **only** module that reads/writes the `sessions` table and the **only** module that builds or parses the session cookie. See [Secure Session Planning](#9-secure-session-planning).
+**`auth/sessions.py`** — Session creation, validation, CMAC signing/verification of the session token, expiration checks, revocation, logout invalidation, cookie construction. Uses `crypto/cmac_auth.py` + `crypto/key_manager.py` (purpose `CMAC_SESSION`). This is the **only** module that reads/writes the `sessions` table and the **only** module that builds or parses the session cookie. See [Secure Session Planning](#9-secure-session-planning).
 
 **`auth/decorators.py`** — Reusable `@login_required`, `@role_required("admin")` decorators that wrap Flask view functions. Delegate the actual check to `auth/sessions.py` (is there a valid session?) and `auth/rbac.py` (does the role/ownership check pass?). No decorator anywhere else in the codebase re-implements this logic.
 
@@ -170,7 +170,7 @@ authority-bridged/
 
 **`chat/routes.py`** — HTTP endpoints for viewing/sending private Admin ↔ owner messages. No crypto or SQL inline.
 
-**`chat/services.py`** — Encrypt → MAC → store, and Retrieve → verify MAC → decrypt flows described in `project-context.md` §21–22. Uses `crypto/ecc_encoding.py`, `crypto/hmac_custom.py`, `crypto/key_manager.py` (purposes `ECC_CHAT` and `HMAC_CHAT`). Talks to `database/db.py` for `chat_messages`.
+**`chat/services.py`** — Encrypt → MAC → store, and Retrieve → verify MAC → decrypt flows described in `project-context.md` §21–22. Uses `crypto/ecc_encoding.py`, `crypto/cmac_auth.py`, `crypto/key_manager.py` (purposes `ECC_CHAT` and `CMAC_CHAT`). Talks to `database/db.py` for `chat_messages`.
 
 **`evidence/routes.py`** — Upload/view/download HTTP endpoints. Validates file type/size at the HTTP boundary, delegates everything else to `evidence/services.py`.
 
@@ -198,11 +198,11 @@ authority-bridged/
 
 ## 2. Modularity Rules
 
-1. **Flask routes never contain cryptographic algorithms.** `*/routes.py` files call into `*/services.py` or `crypto/`; they must not compute `mod_pow`, curve arithmetic, or HMAC inline.
+1. **Flask routes never contain cryptographic algorithms.** `*/routes.py` files call into `*/services.py` or `crypto/`; they must not compute `mod_pow`, curve arithmetic, or CMAC inline.
 2. **Database functions never contain Flask/UI logic.** `database/db.py` and the SQL inside `*/services.py` must not `render_template`, read `request`, or set cookies.
 3. **RSA logic stays inside `crypto/rsa.py`** (plus the shared primitives in `crypto/bigint_utils.py`). No other file implements modular exponentiation for RSA.
 4. **ECC logic stays inside `crypto/ecc_curve.py` and `crypto/ecc.py`.** No other file implements point addition/doubling/scalar multiplication.
-5. **HMAC logic stays inside `crypto/hmac_custom.py`.** No route or service re-implements the ipad/opad construction; they only call `generate_mac`/`verify_mac`.
+5. **CMAC logic stays inside `crypto/cmac_auth.py`.** No route or service re-implements the CMAC internals; they only call `compute_cmac`/`verify_cmac`.
 6. **All key retrieval and rotation goes through `crypto/key_manager.py`.** No blueprint, service, or template reads the `keys` table or `.env` root key directly.
 7. **Authorization is centralized, not duplicated.** All role/ownership checks funnel through `auth/decorators.py` + `auth/rbac.py`. A route that needs a custom rule (e.g., "post owner or admin") calls a named function in `auth/rbac.py`, it does not inline a new `if` chain.
 8. **Evidence encryption/decryption lives in a service layer** (`evidence/services.py`), never in `evidence/routes.py` or in a template.
@@ -229,7 +229,7 @@ authority-bridged/
 | 1 | Database foundation |
 | 2 | RSA implementation |
 | 3 | ECC implementation |
-| 4 | HMAC implementation |
+| 4 | CMAC implementation |
 | 5 | Key Management Module |
 | 6 | Registration and password security |
 | 7 | Login and 2FA |
@@ -246,7 +246,7 @@ authority-bridged/
 | 18 | Testing |
 | 19 | Final report evidence collection |
 
-This sequence keeps the order given in the prompt. It is already dependency-correct: primitives (RSA/ECC/HMAC) exist before the Key Manager wraps them (Phase 5); the Key Manager exists before any feature that calls `get_active_key()` (Phases 6, 9–14); passwords/OTP/sessions (6–8) exist before any authenticated feature; posts (10) exist before upvotes (11), evidence (12), admin actions (13), and chat (14) since all four reference a `post_id`. Phase 15 is listed separately from Phase 4 because building the *tamper-detection demonstration* (deliberately corrupting a row and showing the warning) is meaningfully separate from writing the HMAC primitive, and it can only be demonstrated once chat (14) exists. Phase 16 revisits RBAC after every route exists, because it is a horizontal hardening pass across all blueprints, not a single vertical feature. Testing (18) is listed last only because it is where *cross-cutting* pytest suites are assembled from fixtures spanning every module — the plan below still asks for tests to be written phase-by-phase as each module lands (see each phase's **Tests** subsection); Phase 18 is the pass to fill any coverage gaps and run the full suite together.
+This sequence keeps the order given in the prompt. It is already dependency-correct: primitives (RSA/ECC/CMAC) exist before the Key Manager wraps them (Phase 5); the Key Manager exists before any feature that calls `get_active_key()` (Phases 6, 9–14); passwords/OTP/sessions (6–8) exist before any authenticated feature; posts (10) exist before upvotes (11), evidence (12), admin actions (13), and chat (14) since all four reference a `post_id`. Phase 15 is listed separately from Phase 4 because building the *tamper-detection demonstration* (deliberately corrupting a row and showing the warning) is meaningfully separate from writing the CMAC primitive, and it can only be demonstrated once chat (14) exists. Phase 16 revisits RBAC after every route exists, because it is a horizontal hardening pass across all blueprints, not a single vertical feature. Testing (18) is listed last only because it is where *cross-cutting* pytest suites are assembled from fixtures spanning every module — the plan below still asks for tests to be written phase-by-phase as each module lands (see each phase's **Tests** subsection); Phase 18 is the pass to fill any coverage gaps and run the full suite together.
 
 ---
 
@@ -387,36 +387,35 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 ---
 
-### Phase 4 — HMAC implementation
+### Phase 4 — CMAC implementation
 
-**Goal:** A hand-built HMAC-SHA256 construction (not `hmac.new()`), independently testable, including a deliberate tamper-detection test.
+**Goal:** A course-aligned CMAC-TripleDES construction using the `cryptography` CMAC API, independently testable, including a deliberate tamper-detection test.
 
 **Files Created or Modified:**
-`crypto/hmac_custom.py`, `tests/unit/test_hmac.py`.
+`crypto/cmac_auth.py`, `tests/unit/test_cmac.py`.
 
 **Implementation Tasks:**
-- [ ] Implement `_normalize_key(key: bytes, block_size=64) -> bytes` (hash the key down if longer than block size, right-pad with zero bytes if shorter).
-- [ ] Implement the `ipad`/`opad` XOR step explicitly (`bytes(b ^ 0x36 for b in key_block)` / `0x5c`).
-- [ ] Implement `generate_mac(key: bytes, message: bytes) -> bytes` computing `H((K' xor opad) || H((K' xor ipad) || message))` using Python's `hashlib.sha256` purely as the underlying hash primitive. The HMAC *construction* is hand-written and must never call `hmac.new()`.
-- [ ] Implement `verify_mac(key: bytes, message: bytes, received_mac: bytes) -> bool` using a constant-time comparison. `hmac.compare_digest` is allowed because it is comparison-only, not the MAC construction; `hmac.new()` remains forbidden.
+- [ ] Add `cryptography` as a dependency and use the supported TripleDES import.
+- [ ] Implement `compute_cmac(key: bytes, message: bytes) -> bytes` using CMAC with TripleDES and a 24-byte key.
+- [ ] Implement `verify_cmac(key: bytes, message: bytes, expected_tag: bytes) -> bool` using the CMAC verification API and an 8-byte tag.
 - [ ] Add comments mapping each step to `project-context.md` §23 for report section 9.
 
 **Dependencies:** Phase 0. (Independent of Phases 2–3.)
 
 **Completion Criteria:** Phase complete only if:
-- `verify_mac(key, message, generate_mac(key, message)) is True`,
-- changing a single byte of `message` or `key` makes `verify_mac` return `False`,
-- `generate_mac` output is 32 bytes (SHA-256 digest size) and differs from a naive `sha256(key + message)`,
+- `verify_cmac(key, message, compute_cmac(key, message)) is True`,
+- changing a single byte of `message` or `key` makes `verify_cmac` return `False`,
+- `compute_cmac` output is 8 bytes,
 - all unit tests pass.
 
-**Tests (`tests/unit/test_hmac.py`):**
+**Tests (`tests/unit/test_cmac.py`):**
 - `test_mac_verifies_for_unmodified_message`.
-- `test_mac_fails_for_tampered_message` — flip one byte of the message, assert `verify_mac` returns `False`.
+- `test_mac_fails_for_tampered_message` — flip one byte of the message, assert `verify_cmac` returns `False`.
 - `test_mac_fails_for_tampered_key`.
-- `test_mac_differs_from_plain_sha256_concat` — guards against accidentally implementing the insecure `H(key || message)` construction instead of real HMAC.
+- `test_mac_differs_from_plain_sha256_concat` — guards against accidentally implementing the insecure `H(key || message)` construction instead of real CMAC.
 - `test_mac_is_deterministic` — same key+message always produces the same MAC.
 
-**Report Evidence:** Terminal output of the tamper test failing verification with the exact warning-style message planned for report section 9; a short code excerpt of the `ipad`/`opad` XOR step.
+**Report Evidence:** Terminal output of the tamper test failing verification with the exact warning-style message planned for report section 9; a short code excerpt of the course CMAC API call.
 
 ---
 
@@ -429,16 +428,16 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 **Implementation Tasks:**
 - [ ] Load the root RSA key pair from decimal integer environment variables via `config.py` at process start: `ROOT_RSA_N`, `ROOT_RSA_E`, `ROOT_RSA_D`. The root RSA modulus is 2048 bits. Root private material is never stored in SQLite or Git.
-- [ ] Implement `_wrap_private_key(private_key_material: bytes) -> bytes` — RSA-encrypts the private key material (RSA or ECC private scalar, or HMAC secret) using the root RSA public key, via `crypto/rsa.py`'s byte-chunking functions.
+- [ ] Implement `_wrap_private_key(private_key_material: bytes) -> bytes` — RSA-encrypts the private key material (RSA or ECC private scalar, or CMAC secret) using the root RSA public key, via `crypto/rsa.py`'s byte-chunking functions.
 - [ ] Implement `_unwrap_private_key(wrapped: bytes) -> bytes` — RSA-decrypts using the root private key.
 - [ ] Implement `generate_key(purpose: str, algorithm: str) -> dict` — calls `rsa.rsa_generate_keypair()` or `ecc.ecc_generate_keypair()` depending on `algorithm`, wraps the private part, inserts a new row into `keys` with `status="ACTIVE"`, `version = previous_max_version_for_purpose + 1`, and flips any prior `ACTIVE` row for that purpose to `RETIRED`.
 - [ ] Implement `get_active_key(purpose: str) -> dict` — reads the `keys` row where `purpose=? AND status='ACTIVE'`, unwraps the private key, returns `{"version", "public_key", "private_key"}`.
 - [ ] Implement `get_key_by_version(purpose: str, version: int) -> dict` — same as above but for a specific (possibly `RETIRED`) version; raises if the row is `REVOKED`.
 - [ ] Implement `rotate_key(purpose: str) -> dict` — thin wrapper around `generate_key` documented as the operator-facing entry point (used by `admin/routes.py` in Phase 17).
 - [ ] Implement `retire_key(purpose, version)` and `revoke_key(purpose, version)` for completeness of the lifecycle described in `project-context.md` §28, even though revocation is only exercised conceptually in this course project.
-- [ ] Bootstrap: on first `init-db`/app start, if no `ACTIVE` key exists for `RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `HMAC_CHAT`, `HMAC_SESSION`, call `generate_key` for each so the app has a usable key set out of the box.
+- [ ] Bootstrap: on first `init-db`/app start, if no `ACTIVE` key exists for `RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `CMAC_CHAT`, `CMAC_SESSION`, call `generate_key` for each so the app has a usable key set out of the box.
 
-**Dependencies:** Phases 1 (`keys` table), 2 (RSA, for wrapping and for `RSA_*` purposes), 3 (ECC, for `ECC_*` purposes), 4 (HMAC, for generating/using `HMAC_*` secrets — an HMAC "key" here is just random bytes, no asymmetric math needed to generate it, but it is still wrapped with the root RSA key before storage).
+**Dependencies:** Phases 1 (`keys` table), 2 (RSA, for wrapping and for `RSA_*` purposes), 3 (ECC, for `ECC_*` purposes), 4 (CMAC, for generating/using `CMAC_*` secrets — an CMAC "key" here is just random bytes, no asymmetric math needed to generate it, but it is still wrapped with the root RSA key before storage).
 
 **Completion Criteria:** Phase complete only if:
 - calling `get_active_key("RSA_PROFILE")` after bootstrap returns a usable key whose `private_key` matches what `generate_key` produced (round-trip through wrap/unwrap),
@@ -542,21 +541,21 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 ### Phase 8 — Secure session system
 
-**Goal:** Sessions are created only after both factors succeed, are HMAC-protected, expire, can be revoked server-side, and use safe cookie flags.
+**Goal:** Sessions are created only after both factors succeed, are CMAC-protected, expire, can be revoked server-side, and use safe cookie flags.
 
 **Files Created or Modified:**
 `auth/sessions.py`, `auth/decorators.py`, `app.py` (cookie config), `tests/integration/test_sessions.py`.
 
 **Implementation Tasks:**
-- [ ] Implement `auth/sessions.py::create_session(user) -> str` (returns the cookie value): generate a cryptographically random `session_id` (`secrets.token_urlsafe`), compute `expires_at`, build the token payload `session_id || user_id || expires_at`, sign it with `crypto/hmac_custom.generate_mac(key_manager.get_active_key("HMAC_SESSION")..., payload)`, store `sha256(session_id)` (`session_id_hash`) + `user_id` + `expires_at` + `active=True` in `sessions`, return the full cookie value (`session_id.expires_at.signature`, base64/urlsafe-joined).
-- [ ] Implement `auth/sessions.py::validate_session(cookie_value) -> Optional[user]`: parse the cookie, recompute HMAC over the parsed fields, `verify_mac`, check `expires_at` not passed, check the DB row for `session_id_hash` is `active=True`, return the associated user or `None`.
+- [ ] Implement `auth/sessions.py::create_session(user) -> str` (returns the cookie value): generate a cryptographically random `session_id` (`secrets.token_urlsafe`), compute `expires_at`, build the token payload `session_id || user_id || expires_at`, sign it with `crypto/cmac_auth.compute_cmac(key_manager.get_active_key("CMAC_SESSION")..., payload)`, store `sha256(session_id)` (`session_id_hash`) + `user_id` + `expires_at` + `active=True` in `sessions`, return the full cookie value (`session_id.expires_at.signature`, base64/urlsafe-joined).
+- [ ] Implement `auth/sessions.py::validate_session(cookie_value) -> Optional[user]`: parse the cookie, recompute CMAC over the parsed fields, `verify_cmac`, check `expires_at` not passed, check the DB row for `session_id_hash` is `active=True`, return the associated user or `None`.
 - [ ] Implement `auth/sessions.py::invalidate_session(cookie_value)` — sets `active=False` in `sessions` (logout).
 - [ ] Finalize Phase 7's OTP-success path: after `verify_otp` returns true, call `auth/sessions.py::create_session(user)`, insert the server-side session row, set the signed cookie, clear the pending-auth state, and redirect to dashboard. There is no pre-OTP authenticated session to regenerate.
 - [ ] Set cookie flags in `app.py`/`auth/routes.py`: `HttpOnly=True`, `SameSite="Lax"`, `SESSION_COOKIE_SECURE=False` for local development/demo, and configurable `True` for production/HTTPS.
 - [ ] Implement `auth/decorators.py::login_required` — reads the cookie, calls `validate_session`, aborts `401`/redirects to `/login` on failure, else attaches `g.current_user`.
 - [ ] Implement `/logout` route calling `invalidate_session` and clearing the cookie.
 
-**Dependencies:** Phases 1 (sessions table), 4 (HMAC), 5 (Key Manager, purpose `HMAC_SESSION`), 7 (this is invoked from the OTP-success path).
+**Dependencies:** Phases 1 (sessions table), 4 (CMAC), 5 (Key Manager, purpose `CMAC_SESSION`), 7 (this is invoked from the OTP-success path).
 
 **Completion Criteria:** Phase complete only if:
 - no session exists in the `sessions` table before OTP success,
@@ -741,13 +740,13 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 ### Phase 14 — Private Admin ↔ Owner chat
 
-**Goal:** ECC-encrypted, HMAC-integrity-protected private messaging restricted to the complaint owner and Admin.
+**Goal:** ECC-encrypted, CMAC-integrity-protected private messaging restricted to the complaint owner and Admin.
 
 **Files Created or Modified:**
 `chat/routes.py`, `chat/services.py`, `templates/chat.html`, `tests/integration/test_chat.py`.
 
 **Implementation Tasks:**
-- [ ] Implement `chat/services.py::send_message(post_id, sender_id, plaintext) -> message_id` implementing the Encrypt → MAC → Store flow from `project-context.md` §21: validate private chat message length ≤ 300 characters, ECC-encrypt `plaintext` (`key_manager.get_active_key("ECC_CHAT")` + `crypto/ecc_encoding.py`), serialize ciphertext as JSON TEXT using centralized ECC serialization helpers, compute `mac = generate_mac(hmac_key, post_id || sender_id || timestamp || ciphertext)` using `key_manager.get_active_key("HMAC_CHAT")`, insert into `chat_messages` with `ecc_key_version` and `hmac_key_version`. There is no `receiver_id`; conversation membership is derived from the post.
+- [ ] Implement `chat/services.py::send_message(post_id, sender_id, plaintext) -> message_id` implementing the Encrypt → MAC → Store flow from `project-context.md` §21: validate private chat message length ≤ 300 characters, ECC-encrypt `plaintext` (`key_manager.get_active_key("ECC_CHAT")` + `crypto/ecc_encoding.py`), serialize ciphertext as JSON TEXT using centralized ECC serialization helpers, compute `mac = compute_cmac(cmac_key, post_id || sender_id || timestamp || ciphertext)` using `key_manager.get_active_key("CMAC_CHAT")`, insert into `chat_messages` with `ecc_key_version` and `cmac_key_version`. There is no `receiver_id`; conversation membership is derived from the post.
 - [ ] Implement `chat/services.py::get_conversation(post_id, requester) -> list[dict]` implementing the Retrieve → Verify MAC → Decrypt flow from §22: for each message, recompute the MAC over the same field concatenation, compare; on match decrypt and include plaintext + `integrity_ok=True`; on mismatch include `integrity_ok=False` and the warning text `"Message integrity verification failed. Possible unauthorized modification detected."` **without** attempting decryption.
 - [ ] Implement authorization in `auth/rbac.py::can_access_chat(user, post)` — true only for the post's owner or any Admin; wire it into `chat/routes.py`.
 - [ ] Write `chat/routes.py::GET /posts/<id>/chat` (view conversation), `POST /posts/<id>/chat` (send message). The post owner may access their own conversation; any Admin may access any post conversation; everyone else is denied.
@@ -758,7 +757,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 **Completion Criteria:** Phase complete only if:
 - the post owner and Admin can exchange messages and read them correctly,
 - a different logged-in student cannot reach the conversation at all (`403`, not just a hidden UI element),
-- old messages continue verifying after `HMAC_CHAT` rotation because each row stores `hmac_key_version`,
+- old messages continue verifying after `CMAC_CHAT` rotation because each row stores `cmac_key_version`,
 - manually corrupting a stored `ciphertext` or `mac` value in SQLite and reloading the conversation shows the tamper warning instead of garbled/incorrect plaintext,
 - an untouched message never shows the tamper warning (no false positives).
 
@@ -769,7 +768,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 - `test_tampered_mac_detected`.
 - `test_untampered_message_not_flagged` (regression against false positives).
 - `test_message_moved_to_different_post_context_fails_mac` — copy a valid `(ciphertext, mac)` pair into a row with a different `post_id`, assert MAC verification fails (validates the anti-replay-across-conversations property from §21).
-- `test_hmac_chat_rotation_preserves_old_message_verification`.
+- `test_cmac_chat_rotation_preserves_old_message_verification`.
 - `test_private_chat_message_length_limit`.
 
 **Report Evidence:** Live demo screenshot sequence: normal message → manually edited SQLite value → reload showing the integrity-failure warning (Demo 8 & Demo 9, report section 9).
@@ -778,7 +777,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 
 ### Phase 15 — MAC tamper detection (demonstration hardening)
 
-**Goal:** Turn the tamper-detection behavior already built in Phase 14 into a clean, repeatable, presentation-ready demonstration, and confirm it also protects session tokens end-to-end (session HMAC was built in Phase 8; this phase is where both are validated together for the report).
+**Goal:** Turn the tamper-detection behavior already built in Phase 14 into a clean, repeatable, presentation-ready demonstration, and confirm it also protects session tokens end-to-end (session CMAC was built in Phase 8; this phase is where both are validated together for the report).
 
 **Files Created or Modified:**
 `tests/integration/test_chat.py` (add a scripted end-to-end tamper scenario if not already present), `tests/integration/test_sessions.py` (cross-check), possibly a small `database/seed.py` helper or a documented manual SQL snippet for the live demo (not application code).
@@ -900,7 +899,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 RSA (crypto/rsa.py)
  ├─→ user/profile data                      (users.encrypted_name/email/contact)
  ├─→ evidence files                         (evidence, RSA block/chunk encryption)
- └─→ key protection                          (key_manager wraps RSA/ECC/HMAC key
+ └─→ key protection                          (key_manager wraps RSA/ECC/CMAC key
                                                material with the root RSA key)
 
 ECC / EC-ElGamal (crypto/ecc.py, ecc_curve.py, ecc_encoding.py)
@@ -908,7 +907,7 @@ ECC / EC-ElGamal (crypto/ecc.py, ecc_curve.py, ecc_encoding.py)
  ├─→ Admin responses                          (Admin-authored private chat messages)
  └─→ private chat                             (chat_messages.ciphertext)
 
-HMAC-SHA256 (crypto/hmac_custom.py)
+CMAC-TripleDES (crypto/cmac_auth.py)
  ├─→ private-chat integrity                   (chat_messages.mac)
  └─→ session integrity                        (session cookie signature; sessions
                                                table tracks revocation, not the MAC
@@ -925,10 +924,10 @@ Email OTP (auth/otp.py + services/email_service.py)
 Key Manager (crypto/key_manager.py)
  ├─→ owns RSA key versions/lifecycle           (purposes: RSA_PROFILE, RSA_EVIDENCE)
  ├─→ owns ECC key versions/lifecycle           (purposes: ECC_POSTS, ECC_CHAT)
- └─→ owns HMAC key versions/lifecycle          (purposes: HMAC_CHAT, HMAC_SESSION)
+ └─→ owns CMAC key versions/lifecycle          (purposes: CMAC_CHAT, CMAC_SESSION)
 ```
 
-No AES or any other symmetric cipher appears anywhere in this map, consistent with `project-context.md` §12–13 and `crypto-plan.md` §2/§4/§6.
+No symmetric cipher is used to encrypt application data in this map, consistent with `project-context.md` §12–13 and `crypto-plan.md` §2/§4/§6.
 
 ---
 
@@ -937,9 +936,9 @@ No AES or any other symmetric cipher appears anywhere in this map, consistent wi
 Implementation order matches Phase 1 (all tables are created together in `schema.sql`), but logically `keys` and `users` are the two tables everything else references, so they are described first.
 
 ### `keys`
-- **Purpose:** Stores every versioned cryptographic key (RSA, ECC, HMAC) for every purpose, with the private material wrapped by the root key.
+- **Purpose:** Stores every versioned cryptographic key (RSA, ECC, CMAC) for every purpose, with the private material wrapped by the root key.
 - **Primary key:** `id` (surrogate integer).
-- **Important columns:** `algorithm` (`RSA`/`ECC`/`HMAC`), `purpose` (`RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `HMAC_CHAT`, `HMAC_SESSION`), `version` (integer, unique per `purpose`), `public_key` (plaintext — public by definition; empty/null for HMAC secrets, which have no public half), `encrypted_private_key` (RSA-wrapped blob — this *is* the sensitive column), `status` (`ACTIVE`/`RETIRED`/`REVOKED`), `created_at`, `retired_at`.
+- **Important columns:** `algorithm` (`RSA`/`ECC`/`CMAC-3DES`), `purpose` (`RSA_PROFILE`, `RSA_EVIDENCE`, `ECC_POSTS`, `ECC_CHAT`, `CMAC_CHAT`, `CMAC_SESSION`), `version` (integer, unique per `purpose`), `public_key` (plaintext — public by definition; empty/null for CMAC secrets, which have no public half), `encrypted_private_key` (RSA-wrapped blob — this *is* the sensitive column), `status` (`ACTIVE`/`RETIRED`/`REVOKED`), `created_at`, `retired_at`.
 - **No foreign keys** — this table is referenced *by version number*, not by row id, from `users.profile_key_version`, `posts.ecc_key_version`, `evidence.rsa_key_version`, `chat_messages.ecc_key_version` (composite logical reference: `purpose` is implied by which column is referencing it, `version` is the value stored).
 
 ### `users`
@@ -954,7 +953,7 @@ Implementation order matches Phase 1 (all tables are created together in `schema
 - **Primary key:** `id`.
 - **Important columns:** `session_id_hash` (SHA-256 of the raw session id — never store the raw id, only the client's signed cookie has it), `user_id` (FK → `users.id`), `expires_at`, `active` (boolean), `created_at`.
 - **Plaintext metadata:** all of the above are metadata, not sensitive content, per §44.
-- **Key-version field:** none. `HMAC_SESSION` rotation intentionally invalidates existing sessions; users log in again after a session-key rotation.
+- **Key-version field:** none. `CMAC_SESSION` rotation intentionally invalidates existing sessions; users log in again after a session-key rotation.
 
 ### `otp_codes`
 - **Purpose:** Short-lived, single-use second-factor codes.
@@ -991,8 +990,8 @@ Implementation order matches Phase 1 (all tables are created together in `schema
 - **Important foreign keys:** `post_id` → `posts.id`, `sender_id` → `users.id`. There is no `receiver_id`; conversation membership is derived from the post.
 - **Encrypted fields:** `ciphertext` (ECC JSON TEXT; each encrypted byte entry is `[c1_x, c1_y, c2_x, c2_y]`).
 - **Plaintext metadata fields:** `created_at` (used as the `timestamp` input to the MAC — must be captured *before* MAC computation and never altered afterward without invalidating the MAC, by design).
-- **Integrity field:** `mac` (HMAC-SHA256 output over `post_id || sender_id || timestamp || ciphertext`).
-- **Key-version fields:** `ecc_key_version`, `hmac_key_version`. Old messages must continue verifying after `HMAC_CHAT` rotation.
+- **Integrity field:** `mac` (CMAC-TripleDES output over `post_id || sender_id || timestamp || ciphertext`).
+- **Key-version fields:** `ecc_key_version`, `cmac_key_version`. Old messages must continue verifying after `CMAC_CHAT` rotation.
 - **Application limits:** private chat message ≤ 300 characters.
 
 **Implementation order within Phase 1:** `keys`, `users`, `sessions`, `otp_codes`, `posts`, `upvotes`, `evidence`, `chat_messages` — this is the order `schema.sql` defines them in, respecting foreign-key dependency direction (a table is defined after every table it references).
@@ -1001,12 +1000,12 @@ Implementation order matches Phase 1 (all tables are created together in `schema
 
 ## 7. Key Versioning Rules
 
-- **No module ever assumes a single permanent key.** Every encrypted record stores the `version` that was `ACTIVE` at the moment of encryption (`profile_key_version`, `ecc_key_version`, `rsa_key_version`, and for chat integrity `hmac_key_version`), and every decryption/verification path looks that version up explicitly — it never asks the Key Manager for "the key," only for "the active key" (writes) or "the key for version N" (reads).
+- **No module ever assumes a single permanent key.** Every encrypted record stores the `version` that was `ACTIVE` at the moment of encryption (`profile_key_version`, `ecc_key_version`, `rsa_key_version`, and for chat integrity `cmac_key_version`), and every decryption/verification path looks that version up explicitly — it never asks the Key Manager for "the key," only for "the active key" (writes) or "the key for version N" (reads).
 - **Encryption path:** `service.py` function → `key_manager.get_active_key(purpose)` → returns `{version, public_key, private_key}` → service encrypts with `public_key` → service stores ciphertext **and** `version` together in the same `INSERT`/`UPDATE`. The version is never looked up in a second query after the encryption call — same call, same version, to avoid a race where rotation happens between "ask for the key" and "write the row."
 - **Decryption path:** `service.py` function reads the row (which already contains its own `*_key_version`) → `key_manager.get_key_by_version(purpose, stored_version)` → decrypts with the returned `private_key`. This works identically whether the stored version is currently `ACTIVE` or `RETIRED`; it only breaks if the version is `REVOKED` (by design — revocation is meant to be terminal, reached only after data using that version has been migrated).
 - **Rotation:** `key_manager.rotate_key(purpose)` generates version `N+1`, marks it `ACTIVE`, flips the previous `ACTIVE` row for that `purpose` to `RETIRED`. It does **not** touch any existing data row — no bulk re-encryption happens automatically. Re-encryption onto a new version only happens opportunistically when a record is next *written* through its normal update path (e.g., Phase 9's profile update re-encrypts with whatever is active at that moment), never as a background job (keeping with "no Celery/Redis," Rule 5 in [Section 2](#2-modularity-rules)).
 - **Multiple simultaneously-valid versions are expected and correct** — this is exactly what makes Phase 17's demonstration possible (old post still decrypts under v1 while new posts use v2).
-- **Exception for sessions:** `HMAC_SESSION` rotation intentionally invalidates existing sessions. The `sessions` table does not store historical session HMAC key versions; users must log in again after session-key rotation.
+- **Exception for sessions:** `CMAC_SESSION` rotation intentionally invalidates existing sessions. The `sessions` table does not store historical session CMAC key versions; users must log in again after session-key rotation.
 
 ---
 
@@ -1063,12 +1062,12 @@ Session handling is fully isolated inside `auth/sessions.py`; no other module bu
 
 - **Session generation:** happens exclusively inside `auth/sessions.py::create_session(user)`, called exclusively from the OTP-success branch finalized in Phase 8 — never from the plain-password-success branch, and never from anywhere else in the codebase.
 - **Session validation:** happens exclusively inside `auth/sessions.py::validate_session(cookie_value)`, called exclusively from `auth/decorators.py::login_required`. Route handlers never parse the cookie themselves.
-- **HMAC verification:** the cookie payload (`session_id || user_id || expires_at`) is signed with `crypto/hmac_custom.py` using the `HMAC_SESSION` purpose key from `crypto/key_manager.py`; `validate_session` recomputes and compares before trusting any field, including `user_id` (Rule 6, [Section 2](#2-modularity-rules) — never trust a client-supplied user id without server-side verification).
+- **CMAC verification:** the cookie payload (`session_id || user_id || expires_at`) is signed with `crypto/cmac_auth.py` using the `CMAC_SESSION` purpose key from `crypto/key_manager.py`; `validate_session` recomputes and compares before trusting any field, including `user_id` (Rule 6, [Section 2](#2-modularity-rules) — never trust a client-supplied user id without server-side verification).
 - **Expiry:** `expires_at` is part of the signed payload (so it cannot be silently extended by the client) and is checked against the current server time on every `validate_session` call, independent of the DB row's own bookkeeping.
 - **Logout invalidation:** `auth/sessions.py::invalidate_session` sets the DB row's `active=False`; this is checked on every subsequent `validate_session` call even if the signature and expiry are still technically valid — this is what makes logout a real server-side revocation rather than just deleting a cookie.
 - **Pending-auth state:** Phase 7 may keep only a pending-auth marker between password success and OTP verification. It is not an authenticated session and must not grant access to `login_required` routes.
 - **No pre-OTP session regeneration:** no authenticated session exists before OTP succeeds, so the OTP-success path creates the first authenticated session instead of regenerating a pre-OTP session.
-- **Session-key rotation:** rotating `HMAC_SESSION` intentionally invalidates existing sessions because validation uses the currently active session HMAC key and the `sessions` table has no historical key-version column.
+- **Session-key rotation:** rotating `CMAC_SESSION` intentionally invalidates existing sessions because validation uses the currently active session CMAC key and the `sessions` table has no historical key-version column.
 - **Cookie settings:** `HttpOnly=True` always; `SameSite="Lax"` always; `SESSION_COOKIE_SECURE=False` for local development/demo, configurable `True` for production/HTTPS.
 - **Owning module:** `auth/sessions.py` is the single owner of all of the above. `auth/decorators.py` is a thin consumer of it. `app.py` only sets process-wide cookie defaults (name, path) and delegates value construction entirely to `auth/sessions.py`.
 
@@ -1109,7 +1108,7 @@ tests/
 │   ├── test_ecc.py
 │   ├── test_ecc_encoding.py
 │   ├── test_hashing.py
-│   ├── test_hmac.py
+│   ├── test_cmac.py
 │   └── test_key_manager.py   # touches a temp DB (key storage), still "unit"-scale
 └── integration/            # Flask app + real (temp) SQLite DB, via test client
     ├── test_auth_flow.py     # registration, login, OTP
@@ -1130,8 +1129,8 @@ Required coverage, mapped to where it lives (all named explicitly in the prompt)
 | RSA invalid/corrupt ciphertext | `unit/test_rsa.py::test_invalid_ciphertext_raises` |
 | ECC point operations | `unit/test_ecc.py::test_point_*`, `test_scalar_multiplication_*` |
 | ECC encryption/decryption | `unit/test_ecc.py::test_encrypt_decrypt_roundtrip`, `test_decrypt_with_wrong_key_fails` |
-| HMAC generation | `unit/test_hmac.py::test_mac_verifies_for_unmodified_message` |
-| HMAC tamper detection | `unit/test_hmac.py::test_mac_fails_for_tampered_message`; `integration/test_chat.py::test_tampered_*` |
+| CMAC generation | `unit/test_cmac.py::test_mac_verifies_for_unmodified_message` |
+| CMAC tamper detection | `unit/test_cmac.py::test_mac_fails_for_tampered_message`; `integration/test_chat.py::test_tampered_*` |
 | Password verification | `unit/test_hashing.py::test_hash_verify_roundtrip`, `test_wrong_password_fails_verification` |
 | Public registration student-only | `integration/test_auth_flow.py::test_public_register_forces_student_role` |
 | Admin controlled seeding | `integration/test_auth_flow.py::test_seed_creates_admin_with_hashed_password_and_encrypted_profile` |
@@ -1148,7 +1147,7 @@ Required coverage, mapped to where it lives (all named explicitly in the prompt)
 | Duplicate upvotes | `integration/test_upvotes.py::test_duplicate_upvote_rejected` |
 | Private-chat ownership | `integration/test_chat.py::test_other_student_denied_chat_access` |
 | Public post auth required | `integration/test_posts.py::test_public_post_listing_requires_login` |
-| Chat HMAC key rotation | `integration/test_chat.py::test_hmac_chat_rotation_preserves_old_message_verification` |
+| Chat CMAC key rotation | `integration/test_chat.py::test_cmac_chat_rotation_preserves_old_message_verification` |
 | Application limits | `integration/test_posts.py::test_post_title_and_description_length_limits`; `integration/test_chat.py::test_private_chat_message_length_limit`; `integration/test_evidence.py::test_oversized_file_rejected` |
 | Evidence path/filename handling | `integration/test_evidence.py::test_filename_encrypted_but_file_path_plain_id_derived` |
 
@@ -1168,7 +1167,7 @@ Unit tests (`tests/unit/`) never import `flask` or hit HTTP; integration tests (
 | 6 | Key Management | `keys` table screenshot (ciphertext private keys); rotation before/after screenshot (Demo 10) | Phases 5, 17 |
 | 7 | Post/Profile Management | Post creation/edit screenshots; anonymous-display screenshot; status transition screenshots (Demo 3, 4, 7) | Phases 9, 10, 13 |
 | 8 | Encrypted Storage | `encrypted_uploads/` directory listing showing only `.enc` files; DB row showing encrypted filename and plaintext id-derived `file_path`; three-way access matrix demo (Demo 6) | Phase 12 |
-| 9 | MAC | Chat message send/verify flow using `post_id || sender_id || timestamp || ciphertext`; `hmac_key_version` rotation proof; tamper-and-reload demonstration (Demo 8, 9) | Phases 14, 15 |
+| 9 | MAC | Chat message send/verify flow using `post_id || sender_id || timestamp || ciphertext`; `cmac_key_version` rotation proof; tamper-and-reload demonstration (Demo 8, 9) | Phases 14, 15 |
 | 10 | RBAC | Completed permission matrix; audit summary from Phase 16 | Phase 16 |
 | 11 | Secure Sessions | Tampered-cookie rejection terminal output; cookie flags screenshot (dev tools) | Phase 8 |
 | 12 | GitHub Structure | Final repo tree; `README.md`; commit history screenshot | Phases 0, 19 |
@@ -1186,7 +1185,7 @@ Unit tests (`tests/unit/`) never import `flask` or hit HTTP; integration tests (
 | **Member B** | `crypto/ecc_curve.py`, `crypto/ecc.py`, `crypto/ecc_encoding.py`, post encryption in `posts/`, chat encryption in `chat/` |
 | **Member C** | `app.py`, `config.py`, `database/`, `auth/sessions.py`, `auth/otp.py`, `auth/decorators.py`, `auth/rbac.py`, `templates/`, `static/` |
 
-This mirrors the source material's own example (RSA+profile/evidence vs. ECC+posts/chat vs. Flask/DB/auth/UI). `crypto/hmac_custom.py` and `crypto/key_manager.py` are natural shared-ownership modules (both A and B depend on them) — assign one primary owner (suggest Member C, since Key Manager sits at the Flask/DB boundary) but expect either A or B to submit the first draft once their algorithm work exists to wrap.
+This mirrors the source material's own example (RSA+profile/evidence vs. ECC+posts/chat vs. Flask/DB/auth/UI). `crypto/cmac_auth.py` and `crypto/key_manager.py` are natural shared-ownership modules (both A and B depend on them) — assign one primary owner (suggest Member C, since Key Manager sits at the Flask/DB boundary) but expect either A or B to submit the first draft once their algorithm work exists to wrap.
 
 ### Why this split avoids conflicts
 - `crypto/rsa.py` and `crypto/ecc*.py` never both change in the same commit by design (Rule 3/4 of [Section 2](#2-modularity-rules): each algorithm lives in its own file).
@@ -1254,9 +1253,9 @@ def generate_salt(length_bytes: int = 16) -> bytes: ...
 def hash_password(password: str, salt: bytes) -> bytes: ...
 def verify_password(password: str, salt: bytes, expected_hash: bytes) -> bool: ...
 
-# crypto/hmac_custom.py
-def generate_mac(key: bytes, message: bytes) -> bytes: ...
-def verify_mac(key: bytes, message: bytes, received_mac: bytes) -> bool: ...
+# crypto/cmac_auth.py
+def compute_cmac(key: bytes, message: bytes) -> bytes: ...
+def verify_cmac(key: bytes, message: bytes, received_mac: bytes) -> bool: ...
 
 # crypto/key_manager.py
 def generate_key(purpose: str, algorithm: str) -> dict:
@@ -1336,8 +1335,11 @@ Add `users.email_lookup_hash`. Registration and login normalize email with trim 
 ### 9. OTP salted hashing
 Add `otp_codes.otp_salt`. Every OTP gets a fresh random salt and stores `SHA256(salt || OTP)`. Raw OTP is never persisted.
 
-### 10. SHA-256 allowance and HMAC restriction
-Python `hashlib.sha256` is allowed as the underlying SHA-256 primitive. RSA, ECC, and the HMAC construction itself remain implemented manually. Do not call `hmac.new()`.
+### 10. SHA-256 allowance and CMAC implementation
+Python `hashlib.sha256` is allowed as the underlying SHA-256 primitive. RSA
+and ECC remain implemented manually. CMAC uses the course-aligned
+`cryptography` CMAC API with TripleDES; do not substitute HMAC or another MAC
+implementation.
 
 ### 11. Cookie flags
 Local development/demo uses `SESSION_COOKIE_SECURE=False`. Production/HTTPS config may set it `True`. `HttpOnly` and `SameSite` remain enabled.
@@ -1346,16 +1348,16 @@ Local development/demo uses `SESSION_COOKIE_SECURE=False`. Production/HTTPS conf
 Acknowledgement is not a separate database concept. It means `status = "Acknowledged"`. Valid statuses are `Pending`, `Acknowledged`, and `Resolved`.
 
 ### 13. Private chat schema and MAC input
-`chat_messages` contains `id`, `post_id`, `sender_id`, `ciphertext`, `mac`, `ecc_key_version`, `hmac_key_version`, and `created_at`. There is no `receiver_id`. Conversation membership is derived from the post: the post owner may access, Admin may access, everyone else is denied. MAC input is `post_id || sender_id || timestamp || ciphertext`.
+`chat_messages` contains `id`, `post_id`, `sender_id`, `ciphertext`, `mac`, `ecc_key_version`, `cmac_key_version`, and `created_at`. There is no `receiver_id`. Conversation membership is derived from the post: the post owner may access, Admin may access, everyone else is denied. MAC input is `post_id || sender_id || timestamp || ciphertext`.
 
 ### 14. Admin response meaning
 "Admin response" means Admin-authored private chat messages. Do not add a separate `admin_response` field to `posts`.
 
-### 15. Chat HMAC key rotation
-`chat_messages.hmac_key_version` is required. Old messages must continue verifying after `HMAC_CHAT` rotation.
+### 15. Chat CMAC key rotation
+`chat_messages.cmac_key_version` is required. Old messages must continue verifying after `CMAC_CHAT` rotation.
 
-### 16. Session HMAC key rotation
-`HMAC_SESSION` rotation intentionally invalidates existing sessions. Do not add historical HMAC session-key support; users must log in again after session-key rotation.
+### 16. Session CMAC key rotation
+`CMAC_SESSION` rotation intentionally invalidates existing sessions. Do not add historical CMAC session-key support; users must log in again after session-key rotation.
 
 ### 17. ECC ciphertext serialization and limits
 ECC ciphertext serialization uses JSON stored as SQLite `TEXT`. Each encrypted byte entry is `[c1_x, c1_y, c2_x, c2_y]`, handled by centralized serialize/deserialize helpers. Application limits are: post title 120 characters, post description 500 characters, private chat message 300 characters.
@@ -1385,8 +1387,8 @@ The project is complete only when:
 - [ ] Email OTP 2FA works and OTPs expire after use/time.
 - [ ] Public registration cannot create Admin accounts.
 - [ ] Private Admin ↔ post-owner chat works.
-- [ ] HMAC detects modified chat messages.
-- [ ] Old chat MACs continue verifying after HMAC_CHAT rotation.
+- [ ] CMAC detects modified chat messages.
+- [ ] Old chat MACs continue verifying after CMAC_CHAT rotation.
 - [ ] RBAC is enforced server-side.
 - [ ] Secure sessions expire, invalidate on logout, and reject tampered tokens.
 - [ ] Key rotation preserves access to old encrypted records.

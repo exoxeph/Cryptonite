@@ -6,7 +6,7 @@ from app import create_app
 from auth import otp
 from auth.account_service import create_user
 from auth import sessions as auth_sessions
-from crypto.hmac_custom import generate_mac
+from crypto.cmac_auth import compute_cmac
 from crypto import key_manager
 from database import db
 
@@ -83,10 +83,10 @@ def test_authenticated_homepage_preserves_session_navigation(session_app):
     assert b"Log out" in response.data
 
 
-def test_flask_secret_key_is_separate_from_hmac_session_key(session_app):
+def test_flask_secret_key_is_separate_from_cmac_session_key(session_app):
     with session_app.app_context():
-        hmac_session_key = key_manager.get_active_key("HMAC_SESSION")["private_key"]
-    assert session_app.config["SECRET_KEY"].encode("utf-8") != hmac_session_key
+        cmac_session_key = key_manager.get_active_key("CMAC_SESSION")["private_key"]
+    assert session_app.config["SECRET_KEY"].encode("utf-8") != cmac_session_key
 
 
 @pytest.mark.parametrize("part", [0, 1, 2])
@@ -114,8 +114,8 @@ def test_missing_malformed_unknown_expired_and_mismatched_sessions_are_rejected(
         expired_at = "2000-01-01T00:00:00Z"
         with session_app.app_context():
             db.execute("UPDATE sessions SET expires_at = ?", (expired_at,))
-            key = key_manager.get_active_key("HMAC_SESSION")["private_key"]
-            expired_signature = generate_mac(key, auth_sessions._payload(session_id, user_id, expired_at)).hex()
+            key = key_manager.get_active_key("CMAC_SESSION")["private_key"]
+            expired_signature = compute_cmac(key, auth_sessions._payload(session_id, user_id, expired_at)).hex()
         expired_cookie = f"{session_id}.{expired_at}.{expired_signature}"
         client.set_cookie(session_app.config["AUTH_SESSION_COOKIE_NAME"], expired_cookie)
         assert client.get("/dashboard").status_code == 302
@@ -187,11 +187,11 @@ def test_logout_revokes_database_row_and_old_cookie_replay_fails(session_app):
         assert db.query_one("SELECT active FROM sessions")["active"] == 0
 
 
-def test_hmac_session_rotation_invalidates_old_cookie(session_app):
+def test_cmac_session_rotation_invalidates_old_cookie(session_app):
     with session_app.test_client() as client:
         user_id, _, old_cookie = _authenticate(client, session_app)
         with session_app.app_context():
-            key_manager.rotate_key("HMAC_SESSION")
+            key_manager.rotate_key("CMAC_SESSION")
         client.set_cookie(session_app.config["AUTH_SESSION_COOKIE_NAME"], old_cookie)
         assert client.get("/dashboard").status_code == 302
         with session_app.app_context():

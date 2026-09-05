@@ -157,7 +157,7 @@ def test_message_is_encrypted_and_mac_protected_at_rest(chat_app):
     assert plaintext not in row["ciphertext"]
     assert plaintext.encode() not in row["mac"]
     assert row["ecc_key_version"] == 1
-    assert row["hmac_key_version"] == 1
+    assert row["cmac_key_version"] == 1
 
 
 def test_untampered_message_not_flagged(chat_app):
@@ -242,8 +242,8 @@ def test_message_moved_to_different_post_context_fails_mac(chat_app):
         send_message(post_a, owner, "secret")
         row = _message_row(chat_app)
         db.execute(
-            "INSERT INTO chat_messages (post_id, sender_id, ciphertext, mac, ecc_key_version, hmac_key_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (post_b, row["sender_id"], row["ciphertext"], row["mac"], row["ecc_key_version"], row["hmac_key_version"], row["created_at"]),
+            "INSERT INTO chat_messages (post_id, sender_id, ciphertext, mac, ecc_key_version, cmac_key_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (post_b, row["sender_id"], row["ciphertext"], row["mac"], row["ecc_key_version"], row["cmac_key_version"], row["created_at"]),
         )
         messages = get_conversation(post_b, {"id": owner, "role": "student"})
     assert messages[0]["integrity_ok"] is False
@@ -264,18 +264,18 @@ def test_sender_or_timestamp_context_tamper_fails_mac(chat_app, column):
     assert messages[0]["integrity_ok"] is False
 
 
-def test_hmac_chat_rotation_preserves_old_message_verification(chat_app):
+def test_cmac_chat_rotation_preserves_old_message_verification(chat_app):
     owner = _user(chat_app, "owner@example.com")
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
     with chat_app.app_context():
         send_message(post_id, owner, "old")
-        key_manager.rotate_key("HMAC_CHAT")
+        key_manager.rotate_key("CMAC_CHAT")
         send_message(post_id, owner, "new")
-        rows = db.query_all("SELECT hmac_key_version, ecc_key_version FROM chat_messages ORDER BY id")
+        rows = db.query_all("SELECT cmac_key_version, ecc_key_version FROM chat_messages ORDER BY id")
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert [row["hmac_key_version"] for row in rows] == [1, 2]
+    assert [row["cmac_key_version"] for row in rows] == [1, 2]
     assert [message["plaintext"] for message in messages] == ["old", "new"]
 
 
@@ -288,10 +288,10 @@ def test_ecc_chat_rotation_preserves_old_message_decryption(chat_app):
         send_message(post_id, owner, "old")
         key_manager.rotate_key("ECC_CHAT")
         send_message(post_id, owner, "new")
-        rows = db.query_all("SELECT ecc_key_version, hmac_key_version FROM chat_messages ORDER BY id")
+        rows = db.query_all("SELECT ecc_key_version, cmac_key_version FROM chat_messages ORDER BY id")
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
     assert [row["ecc_key_version"] for row in rows] == [1, 2]
-    assert [row["hmac_key_version"] for row in rows] == [1, 1]
+    assert [row["cmac_key_version"] for row in rows] == [1, 1]
     assert [message["plaintext"] for message in messages] == ["old", "new"]
 
 

@@ -10,13 +10,13 @@ The template specifically expects you to document RSA/ECC separately, explain ho
 | Evidence PDF/image         | **RSA encryption in blocks**                                     |
 | Complaint/post text        | **ECC / EC-ElGamal**                                             |
 | Admin response             | **ECC / EC-ElGamal**                                             |
-| Private Admin ↔ owner chat | **ECC + HMAC**                                                   |
+| Private Admin ↔ owner chat | **ECC + CMAC**                                                   |
 | Password                   | **SHA-256 + random salt**                                        |
 | 2FA                        | **6-digit email OTP**                                            |
 | External API               | **Email API used to deliver OTP**                                |
 | Key storage                | Private keys encrypted/wrapped using a separate root RSA key     |
 | Key rotation               | Versioned keys; old keys retained temporarily for old ciphertext |
-| Sessions                   | Random session token + HMAC verification + expiry                |
+| Sessions                   | Random session token + CMAC verification + expiry                |
 | Roles                      | Student / Admin-Authority                                        |
 | Database                   | SQLite                                                           |
 | Framework                  | Flask                                                            |
@@ -281,19 +281,21 @@ This prevents the course project from turning into a file-storage project.
 
 ---
 
-# 4. MAC — finalize this as HMAC
+# 4. MAC — finalize this as CMAC
 
 Use:
 
-## **HMAC-SHA256**
+## **CMAC-TripleDES**
 
 Do **not use CBC-MAC** here.
 
-CBC-MAC depends on a symmetric block cipher, while your project explicitly says symmetric encryption isn't allowed.
+CBC-MAC is not used here. The project prohibits symmetric ciphers for
+application-data confidentiality, while CMAC-TripleDES is explicitly allowed
+only for integrity/authentication tags.
 
-HMAC doesn't encrypt anything. It provides **integrity/authentication**, exactly what your faculty asked you to demonstrate.
+CMAC doesn't encrypt anything. It provides **integrity/authentication**, exactly what your faculty asked you to demonstrate.
 
-The report explicitly allows HMAC and asks you to explain when verification happens. 
+The report explicitly allows CMAC and asks you to explain when verification happens.
 
 Your private chat works like this:
 
@@ -311,7 +313,7 @@ Ciphertext
 
              ↓
 
-HMAC-SHA256
+CMAC-TripleDES
       using MAC secret
 
              ↓
@@ -332,8 +334,6 @@ post_id
 +
 sender_id
 +
-recipient_id
-+
 timestamp
 +
 ciphertext
@@ -348,7 +348,7 @@ Do this order:
 ```text
 Retrieve ciphertext + stored MAC
              ↓
-Recalculate HMAC
+Recalculate CMAC
              ↓
 Compare
       /             \
@@ -361,11 +361,11 @@ Display
 
 This is basically:
 
-## Encrypt → MAC → Store
+## Encrypt → CMAC → Store
 
 and
 
-## Retrieve → Verify MAC → Decrypt
+## Retrieve → Verify CMAC → Decrypt
 
 That's very easy to demonstrate to your faculty.
 
@@ -377,30 +377,12 @@ That will make the purpose of MAC obvious.
 
 ---
 
-# 5. HMAC implementation
+# 5. CMAC implementation
 
-Do **not** call Python's `hmac.new()` and call it a day if the report says from-scratch MAC.
-
-Implement the HMAC construction yourselves:
-
-$$
-HMAC(K,m)=H((K'\oplus opad)\parallel H((K'\oplus ipad)\parallel m))
-$$
-
-You'll implement:
-
-```text
-Key normalization
-ipad
-opad
-XOR
-inner hash
-outer hash
-```
-
-Using SHA-256 underneath.
-
-So you can truthfully explain that **your HMAC construction itself is implemented manually** rather than using Python's HMAC function.
+Use the course `cryptography` CMAC API with a 24-byte TripleDES key. The
+library performs the CMAC construction; this project does not reimplement
+CMAC internals. CMAC returns an 8-byte authentication tag and provides
+integrity/authentication, not confidentiality.
 
 ---
 
@@ -435,7 +417,7 @@ Architecture:
                        ↓
        ┌───────────────┼───────────────┐
        ↓               ↓               ↓
-RSA private key   ECC private key   HMAC secret
+RSA private key   ECC private key   CMAC secret
 ```
 
 The application keys stored in SQLite are therefore encrypted.
@@ -716,7 +698,7 @@ Brevo is another option and also provides a Python API for transactional emails 
 
 I'd actually change this line from your proposal:
 
-> HMAC-based temporary verification code
+> CMAC-based temporary verification code
 
 to:
 
@@ -758,7 +740,7 @@ Generate random session ID
 ↓
 Create expiration time
 ↓
-Generate HMAC over session data
+Generate CMAC over session data
 ↓
 Put token in cookie
 ```
@@ -772,7 +754,7 @@ session_id | expiry | signature
 where:
 
 $$
-signature=HMAC(K_{session},session\_id||expiry||user\_id)
+signature=CMAC(K_{session},session\_id||expiry||user\_id)
 $$
 
 Cookie settings:
@@ -788,7 +770,7 @@ On every authenticated request:
 ```text
 Read cookie
 ↓
-Verify HMAC
+Verify CMAC
 ↓
 Check expiration
 ↓
@@ -858,7 +840,7 @@ chat_messages
 ├── ciphertext
 ├── mac
 ├── ecc_key_version
-├── hmac_key_version
+├── cmac_key_version
 └── created_at
 
 Conversation membership is derived from the post: the post owner and Admin
@@ -915,7 +897,7 @@ Sensitive content does.
    Resend API                      Other students view
           │                         + upvote only
       Session                              │
-      HMAC                                 │
+      CMAC                                 │
                                     Evidence upload
                                      RSA Encrypt
                                           │
@@ -927,14 +909,14 @@ Sensitive content does.
                                           │
                                   ECC Encryption
                                          +
-                                       HMAC
+                                       CMAC
 ```
 
 And cryptographically:
 
 **RSA** → profiles + evidence + key wrapping
 **ECC/EC-ElGamal** → posts + responses + private messages
-**HMAC-SHA256** → private chat integrity + session-token integrity
+**CMAC-TripleDES** → private chat integrity + session-token integrity
 **SHA-256 + salt** → passwords
 **Email OTP + Resend API** → 2FA/API requirement
 **Versioned Key Manager** → rotation without breaking old records

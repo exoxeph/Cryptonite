@@ -1,7 +1,7 @@
 # Authority Bridged Demo Script
 
 This script demonstrates that private chat messages are confidential and that
-HMAC integrity verification prevents modified ciphertext from being decrypted.
+CMAC integrity verification prevents modified ciphertext from being decrypted.
 Run it only against a local development or demo database. Never run the
 tampering SQL against a shared or production database.
 
@@ -20,7 +20,7 @@ tampering SQL against a shared or production database.
 
    ```sql
    SELECT id, post_id, sender_id, ciphertext, mac,
-          ecc_key_version, hmac_key_version, created_at
+          ecc_key_version, cmac_key_version, created_at
    FROM chat_messages
    ORDER BY id DESC;
    ```
@@ -44,8 +44,8 @@ tampering SQL against a shared or production database.
    The corrupted message plaintext must not appear.
 
 The stored MAC covers `post_id`, `sender_id`, `created_at`, and `ciphertext`.
-Originally, `mac = HMAC(context || C)`. After an attacker changes the
-ciphertext to `C'` without the `HMAC_CHAT` key, verification recomputes a
+Originally, `mac = CMAC(context || C)`. After an attacker changes the
+ciphertext to `C'` without the `CMAC_CHAT` key, verification recomputes a
 different value. The application reports the warning and skips ECC
 deserialization and decryption.
 
@@ -54,7 +54,7 @@ The read sequence is:
 ```text
 read stored ciphertext
   -> rebuild MAC input
-  -> verify HMAC
+  -> verify CMAC
   -> mismatch
   -> do not ECC decrypt
   -> show warning
@@ -74,8 +74,8 @@ manually generating a MAC.
    require login again.
 5. Log in normally afterward.
 
-Chat integrity uses `HMAC_CHAT` for stored message rows. Session integrity uses
-`HMAC_SESSION` for authenticated session tokens. They are separate key
+Chat integrity uses `CMAC_CHAT` for stored message rows. Session integrity uses
+`CMAC_SESSION` for authenticated session tokens. They are separate key
 purposes; neither uses Flask `SECRET_KEY`, and no secret key material should be
 shown during the demonstration.
 
@@ -87,6 +87,6 @@ Capture both states for the report:
 - After tampering: the exact warning and no plaintext.
 
 The database screenshot may show `id`, `post_id`, `sender_id`, `ciphertext`,
-`mac`, `ecc_key_version`, `hmac_key_version`, and `created_at`. Do not include
-HMAC secrets, ECC private scalars, RSA private values, the root private key, or
+`mac`, `ecc_key_version`, `cmac_key_version`, and `created_at`. Do not include
+CMAC secrets, ECC private scalars, RSA private values, the root private key, or
 Flask `SECRET_KEY`.
