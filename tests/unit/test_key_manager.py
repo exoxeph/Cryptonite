@@ -53,15 +53,16 @@ def test_rsa_operational_key_round_trip_and_storage_safety(app_with_keys):
         assert row["public_key"] is not None
 
 
-def test_ecc_and_hmac_operational_keys(app_with_keys):
+def test_ecc_and_cmac_operational_keys(app_with_keys):
     with app_with_keys.app_context():
         ecc = key_manager.generate_key("ECC_POSTS")
-        hmac_key = key_manager.generate_key("HMAC_CHAT")
+        cmac_key = key_manager.generate_key("CMAC_CHAT")
         assert is_on_curve(ecc["public_key"])
         assert key_manager.get_key_by_version("ECC_POSTS", 1)["private_key"] == ecc["private_key"]
-        assert hmac_key["public_key"] is None
-        assert key_manager.get_active_key("HMAC_CHAT")["private_key"] == hmac_key["private_key"]
-        row = db.query_one("SELECT public_key FROM keys WHERE purpose = 'HMAC_CHAT'")
+        assert cmac_key["public_key"] is None
+        assert len(cmac_key["private_key"]) == 24
+        assert key_manager.get_active_key("CMAC_CHAT")["private_key"] == cmac_key["private_key"]
+        row = db.query_one("SELECT public_key FROM keys WHERE purpose = 'CMAC_CHAT'")
         assert row["public_key"] is None
 
 
@@ -95,7 +96,7 @@ def test_purpose_and_stored_key_validation(app_with_keys):
             key_manager.generate_key("UNKNOWN")
         with pytest.raises(ValueError, match="requires"):
             key_manager.generate_key("RSA_PROFILE", "ECC")
-        key_manager.generate_key("HMAC_SESSION")
-        db.execute("UPDATE keys SET public_key = '{}' WHERE purpose = 'HMAC_SESSION'")
+        key_manager.generate_key("CMAC_SESSION")
+        db.execute("UPDATE keys SET public_key = '{}' WHERE purpose = 'CMAC_SESSION'")
         with pytest.raises(ValueError, match="malformed"):
-            key_manager.get_active_key("HMAC_SESSION")
+            key_manager.get_active_key("CMAC_SESSION")

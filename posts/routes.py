@@ -4,7 +4,12 @@ from flask import Blueprint, flash, g, jsonify, redirect, render_template, reque
 
 from auth.decorators import login_required
 from auth.rbac import can_create_post
-from evidence.services import EvidenceValidationError, list_evidence, store_evidence
+from evidence.services import (
+    EvidenceValidationError,
+    list_evidence,
+    store_evidence,
+    validate_evidence_upload,
+)
 from posts.services import (
     count_public_posts,
     create_post,
@@ -99,19 +104,42 @@ def new_post():
         values["title"] = request.form.get("title", "")
         values["description"] = request.form.get("description", "")
         anonymous = request.form.get("anonymous") in {"on", "true", "1"}
+        uploads = [item for item in request.files.getlist("evidence") if item.filename]
+        prepared_uploads = []
+        try:
+            for uploaded in uploads:
+                file_bytes = uploaded.read()
+                validate_evidence_upload(uploaded.filename, uploaded.mimetype, file_bytes)
+                prepared_uploads.append((uploaded.filename, file_bytes, uploaded.mimetype))
+        except EvidenceValidationError as exc:
+            if "too large" in str(exc):
+                error = "Evidence files must be 200 KB or smaller. Please choose a smaller file."
+            elif "unsupported" in str(exc):
+                error = "Evidence must be a PDF, PNG, JPG, or JPEG. Please choose a supported file."
+            else:
+                error = "One or more evidence files are invalid. Please choose different files."
+            return render_template("create_post.html", error=error, values=values)
+        except (OSError, TypeError, ValueError):
+            error = "One or more evidence files could not be read. Please choose them again."
+            return render_template("create_post.html", error=error, values=values)
         try:
             post_id = create_post(g.current_user["id"], values["title"], values["description"], anonymous)
         except (TypeError, ValueError):
             error = "Complaint could not be created. Please check your information."
         else:
-            uploads = [item for item in request.files.getlist("evidence") if item.filename]
             try:
-                for uploaded in uploads:
+                for filename, file_bytes, mimetype in prepared_uploads:
                     store_evidence(
-                        post_id, g.current_user["id"], uploaded.filename,
-                        uploaded.read(), uploaded.mimetype,
+                        post_id, g.current_user["id"], filename, file_bytes, mimetype,
                     )
-            except (EvidenceValidationError, OSError, TypeError, ValueError):
+            except EvidenceValidationError as exc:
+                if "too large" in str(exc):
+                    flash("Complaint created, but the evidence file is larger than the 200 KB limit.", "warning")
+                elif "unsupported" in str(exc):
+                    flash("Complaint created, but evidence must be a PDF, PNG, JPG, or JPEG.", "warning")
+                else:
+                    flash("Complaint created, but one or more evidence files could not be uploaded.", "warning")
+            except (OSError, TypeError, ValueError):
                 flash("Complaint created, but one or more evidence files could not be uploaded.", "warning")
             return redirect(url_for("posts.post_detail", post_id=post_id))
     return render_template("create_post.html", error=error, values=values)

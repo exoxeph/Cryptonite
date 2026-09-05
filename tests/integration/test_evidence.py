@@ -16,7 +16,8 @@ class EvidenceConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-evidence-flow-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ROOT_RSA_E = ROOT_RSA_D = ""
     OTP_EXPIRY_SECONDS = 300
     MAX_EVIDENCE_SIZE_BYTES = 200 * 1024
@@ -30,7 +31,7 @@ class EvidenceConfig:
 
 @pytest.fixture
 def evidence_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     EvidenceConfig.DATABASE_PATH = str(tmp_path / "evidence.db")
     EvidenceConfig.EVIDENCE_UPLOAD_DIR = str(tmp_path / "encrypted_uploads")
     EvidenceConfig.ROOT_RSA_E, EvidenceConfig.ROOT_RSA_N = map(str, root["public"])
@@ -93,6 +94,24 @@ def test_owner_can_upload_and_view_evidence(evidence_app):
     assert response.data == original
     assert response.mimetype == "application/pdf"
     assert "report.pdf" in response.headers["Content-Disposition"]
+
+
+def test_repeated_evidence_view_uses_authorized_memory_cache(evidence_app, monkeypatch):
+    owner = _user(evidence_app, "cached@example.com")
+    original = b"%PDF-1.7\ncached evidence"
+    with evidence_app.test_client() as client:
+        _authenticate(client, evidence_app, owner)
+        post_id = _post(client)
+        assert _upload(client, post_id, content=original).status_code == 302
+        assert client.get("/evidence/1").data == original
+
+        def fail_if_decrypts(*_args, **_kwargs):
+            raise AssertionError("cached evidence should not be decrypted again")
+
+        monkeypatch.setattr("evidence.services.rsa_decrypt_bytes", fail_if_decrypts)
+        response = client.get("/evidence/1")
+    assert response.status_code == 200
+    assert response.data == original
 
 
 def test_admin_can_view_evidence(evidence_app):

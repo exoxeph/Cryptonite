@@ -1,3 +1,4 @@
+import io
 import json
 
 import pytest
@@ -13,11 +14,14 @@ class PostsConfig:
     TESTING = True
     SECRET_KEY = "test-only-secret-for-posts-flow-123456"
     DATABASE_PATH = ""
-    RSA_KEY_BITS = 1024
+    RSA_PRIME_BITS = 128
+    RSA_PUBLIC_EXPONENT = 11
     ROOT_RSA_N = ""
     ROOT_RSA_E = ""
     ROOT_RSA_D = ""
     OTP_EXPIRY_SECONDS = 300
+    MAX_EVIDENCE_SIZE_BYTES = 200 * 1024
+    EVIDENCE_UPLOAD_DIR = ""
     SESSION_COOKIE_NAME = "authority_bridged_pending"
     AUTH_SESSION_COOKIE_NAME = "authority_bridged_session"
     SESSION_COOKIE_HTTPONLY = True
@@ -28,8 +32,9 @@ class PostsConfig:
 
 @pytest.fixture
 def posts_app(tmp_path):
-    root = key_manager.rsa_generate_keypair(1024)
+    root = key_manager.rsa_generate_keypair(128)
     PostsConfig.DATABASE_PATH = str(tmp_path / "posts.db")
+    PostsConfig.EVIDENCE_UPLOAD_DIR = str(tmp_path / "encrypted_uploads")
     PostsConfig.ROOT_RSA_E, PostsConfig.ROOT_RSA_N = map(str, root["public"])
     PostsConfig.ROOT_RSA_D = str(root["private"][0])
     app = create_app(PostsConfig)
@@ -92,6 +97,70 @@ def test_create_post_stores_ciphertext(posts_app):
     assert json.loads(row["encrypted_description"])
     assert row["encrypted_title"] != "Broken gate"
     assert row["encrypted_description"] != "The gate does not lock"
+
+
+def test_create_post_uploads_multiple_evidence_files(posts_app):
+    user_id = _user(posts_app, "evidence@example.com")
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        response = client.post(
+            "/posts/new",
+            data={
+                "title": "Broken lights",
+                "description": "The lights are out.",
+                "evidence": [
+                    (io.BytesIO(b"%PDF-1.7 first"), "first.pdf", "application/pdf"),
+                    (io.BytesIO(b"%PDF-1.7 second"), "second.pdf", "application/pdf"),
+                ],
+            },
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 302
+    post_id = int(response.location.rsplit("/", 1)[-1])
+    with posts_app.app_context():
+        rows = db.query_all("SELECT id FROM evidence WHERE post_id = ? ORDER BY id", (post_id,))
+    assert len(rows) == 2
+
+
+def test_invalid_create_evidence_keeps_form_and_does_not_create_post(posts_app):
+    user_id = _user(posts_app, "invalid-evidence@example.com")
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        response = client.post(
+            "/posts/new",
+            data={
+                "title": "Keep this title",
+                "description": "Keep this description",
+                "evidence": (io.BytesIO(b"not an allowed file"), "notes.txt", "text/plain"),
+            },
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 200
+    assert b"Keep this title" in response.data
+    assert b"Keep this description" in response.data
+    assert b"Evidence must be a PDF, PNG, JPG, or JPEG" in response.data
+    with posts_app.app_context():
+        assert db.query_one("SELECT COUNT(*) AS count FROM posts")['count'] == 0
+
+
+def test_oversized_create_evidence_keeps_form_and_does_not_create_post(posts_app):
+    user_id = _user(posts_app, "oversized-evidence@example.com")
+    with posts_app.test_client() as client:
+        _authenticate(client, posts_app, user_id)
+        response = client.post(
+            "/posts/new",
+            data={
+                "title": "Large file complaint",
+                "description": "The form should remain visible.",
+                "evidence": (io.BytesIO(b"x" * (200 * 1024 + 1)), "large.pdf", "application/pdf"),
+            },
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 200
+    assert b"Large file complaint" in response.data
+    assert b"Evidence files must be 200 KB or smaller" in response.data
+    with posts_app.app_context():
+        assert db.query_one("SELECT COUNT(*) AS count FROM posts")['count'] == 0
 
 
 def test_public_post_listing_decrypts_title_only(posts_app):
