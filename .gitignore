@@ -8,6 +8,7 @@
 *.sqlite3
 
 encrypted_uploads/
+docker-data/
 
 __pycache__/
 *.py[cod]

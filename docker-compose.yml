@@ -1,0 +1,18 @@
+services:
+  cryptonite:
+    build: .
+    container_name: cryptonite
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /data/authority_bridged.db
+      EVIDENCE_UPLOAD_DIR: /data/encrypted_uploads
+      OTP_EMAIL_ENABLED: "False"
+      OTP_DEV_PRINT_CODE: "True"
+      SESSION_COOKIE_SECURE: "False"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./docker-data:/data
+    command: >-
+      sh -c "flask --app app:create_app bootstrap-keys && flask --app app:create_app run --host=0.0.0.0 --port=5000"

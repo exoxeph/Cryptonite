@@ -40,6 +40,7 @@ class Config:
     OTP_EMAIL_ENABLED = _get_bool("OTP_EMAIL_ENABLED", True)
     OTP_DEV_PRINT_CODE = _get_bool("OTP_DEV_PRINT_CODE", False)
     MAX_EVIDENCE_SIZE_BYTES = _get_int("MAX_EVIDENCE_SIZE_BYTES", 200 * 1024)
+    EVIDENCE_UPLOAD_DIR = os.getenv("EVIDENCE_UPLOAD_DIR", str(BASE_DIR / "encrypted_uploads"))
 
     # Flask's signed cookie is limited to the temporary pending-OTP marker.
     # The authenticated server-revocable cookie uses the frozen environment name.

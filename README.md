@@ -70,6 +70,41 @@ Expected response:
 {"status":"ok"}
 ```
 
+## Docker
+
+Docker Desktop is required. Create `.env` from `.env.example`, then put a
+generated `SECRET_KEY` and the decimal root RSA values in it. The container
+keeps SQLite and encrypted evidence in the local `docker-data/` directory.
+
+Generate a local root keypair with:
+
+```powershell
+python -c "from crypto.rsa import rsa_generate_keypair; k=rsa_generate_keypair(2048); print('ROOT_RSA_E='+str(k['public'][0])); print('ROOT_RSA_N='+str(k['public'][1])); print('ROOT_RSA_D='+str(k['private'][0]))"
+```
+
+Start the application:
+
+```powershell
+docker compose up --build
+```
+
+The compose setup bootstraps missing operational keys automatically and opens
+the app at `http://localhost:5000/`. Local OTP delivery is configured to print
+the code in the container logs, so no email provider quota is needed:
+
+```powershell
+docker compose logs -f cryptonite
+```
+
+Create the controlled Admin account from another terminal:
+
+```powershell
+docker compose exec cryptonite flask --app app:create_app seed-admin
+```
+
+Stop the container with `Ctrl+C`. Remove `docker-data/` only when you want to
+reset the local database and encrypted uploads.
+
 ## Phase Boundary
 
 Do not implement database schema, cryptography, authentication, sessions, OTP, posts, evidence, chat, or key management until the corresponding later phase is approved.
