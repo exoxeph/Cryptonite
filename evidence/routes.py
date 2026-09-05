@@ -27,14 +27,15 @@ def upload_evidence(post_id):
         return "Post not found.", 404
     if not can_upload_evidence(g.current_user, post):
         return "You are not allowed to upload evidence.", 403
-    uploaded = request.files.get("file")
-    if uploaded is None or not uploaded.filename:
+    uploaded_files = [item for item in request.files.getlist("file") if item.filename]
+    if not uploaded_files:
         return "Evidence upload is invalid.", 400
-    if uploaded.content_length and uploaded.content_length > current_app.config["MAX_EVIDENCE_SIZE_BYTES"]:
-        return "Evidence file is too large.", 413
     try:
-        file_bytes = uploaded.read()
-        evidence_id = store_evidence(post_id, g.current_user["id"], uploaded.filename, file_bytes, uploaded.mimetype)
+        for uploaded in uploaded_files:
+            if uploaded.content_length and uploaded.content_length > current_app.config["MAX_EVIDENCE_SIZE_BYTES"]:
+                return "Evidence file is too large.", 413
+            file_bytes = uploaded.read()
+            store_evidence(post_id, g.current_user["id"], uploaded.filename, file_bytes, uploaded.mimetype)
     except EvidenceValidationError as exc:
         if "too large" in str(exc):
             return "Evidence file is too large.", 413
@@ -58,6 +59,6 @@ def get_evidence(evidence_id):
     return send_file(
         BytesIO(file_bytes),
         mimetype=mimetype,
-        as_attachment=True,
+        as_attachment=request.args.get("inline") != "1",
         download_name=safe_download_name(filename),
     )
