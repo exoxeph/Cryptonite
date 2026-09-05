@@ -33,8 +33,15 @@ def register():
         else:
             try:
                 create_user(**fields, role="student")
-            except (ValueError, TypeError):
-                error = "Registration could not be completed. Please check your information."
+            except ValueError as exc:
+                if str(exc) == "email address is already registered":
+                    error = "An account with this email already exists. Try signing in instead."
+                elif str(exc) in {"name is required", "email is required", "contact is required", "password is required"}:
+                    error = "Please complete all fields before creating your account."
+                else:
+                    error = "Account setup is currently unavailable. Please try again later."
+            except TypeError:
+                error = "Please enter valid information in each field."
             else:
                 return redirect(url_for("auth.register_success"))
     return render_template("register.html", error=error)

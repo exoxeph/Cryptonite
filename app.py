@@ -1,5 +1,6 @@
 import click
-from flask import Flask, jsonify, render_template
+import sqlite3
+from flask import Flask, g, jsonify, render_template, request
 
 from config import Config
 from database import db
@@ -20,6 +21,19 @@ def create_app(config_object=Config):
     ):
         raise RuntimeError("SECRET_KEY must be a generated random value of at least 32 characters")
     db.init_app(app)
+
+    @app.before_request
+    def load_current_user():
+        """Expose a valid session to public templates without authorizing routes."""
+        if request.path not in {"/", "/about", "/how-it-works", "/help"} and not request.path.startswith("/ui-preview"):
+            return
+        from auth.sessions import get_current_user
+
+        try:
+            g.current_user = get_current_user()
+        except sqlite3.Error:
+            # The health endpoint and first-run public pages can exist before init-db.
+            g.current_user = None
 
     from auth.routes import auth_bp
     from admin.routes import admin_bp

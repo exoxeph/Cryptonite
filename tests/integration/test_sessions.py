@@ -72,6 +72,16 @@ def test_otp_creates_hashed_server_session_and_cookie_flags(session_app):
         assert row["session_id_hash"] != session_id.encode("ascii")
 
 
+def test_authenticated_homepage_preserves_session_navigation(session_app):
+    with session_app.test_client() as client:
+        _authenticate(client, session_app)
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert b"Dashboard" in response.data
+    assert b"Log out" in response.data
+
+
 def test_flask_secret_key_is_separate_from_hmac_session_key(session_app):
     with session_app.app_context():
         hmac_session_key = key_manager.get_active_key("HMAC_SESSION")["private_key"]
