@@ -72,8 +72,9 @@ Public key  = (e,n)
 Private key = (d,n)
 ```
 
-Encryption is `C = M^e mod n` and decryption is `M = C^d mod n`, using the
-project's manual square-and-multiply implementation. Arbitrary bytes are split
+Encryption is `C = M^e mod n` and decryption is `M = C^d mod n`, evaluated with
+Python's built-in three-argument modular `pow()` operation as demonstrated in
+the course lab. Arbitrary bytes are split
 into chunks of `(n.bit_length() - 1) // 8` bytes and stored in the `TBR1`
 container with plaintext length, chunk size, block count, and ciphertext blocks.
 There is no padding; textbook RSA is deterministic, malleable, and not suitable

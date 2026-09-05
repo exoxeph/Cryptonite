@@ -10,7 +10,8 @@ Cryptonite uses textbook RSA for classroom demonstration: two approximately
 128-bit primes, an approximately 256-bit modulus, and public exponent `e=11`.
 Arbitrary bytes are split into safe chunks and stored in the `TBR1` container.
 There is no modern padding; textbook RSA is deterministic and malleable and is
-not suitable for production deployment.
+not suitable for production deployment. RSA modular exponentiation uses
+Python's three-argument `pow()` operation, consistent with the course lab.
 
 Changing from the former OAEP development format is a breaking migration. For
 local demo data, remove the old SQLite database and encrypted evidence files,

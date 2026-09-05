@@ -323,7 +323,7 @@ This sequence keeps the order given in the prompt. It is already dependency-corr
 - [ ] Implement `is_probable_prime(n, rounds=...)` (Miller–Rabin) in `bigint_utils.py`.
 - [ ] Implement `generate_prime(bit_length)` in `bigint_utils.py` using `secrets.randbits` + `is_probable_prime`.
 - [ ] Implement `rsa_generate_keypair(prime_bits=128, public_exponent=11)` in `rsa.py`: pick distinct `p`, `q`, compute `n = p*q`, `φ(n) = (p-1)(q-1)`, verify `gcd(e, φ(n)) == 1`, and compute `d = mod_inverse(e, φ(n))`. Returns `{"public": (e, n), "private": (d, n)}`.
-- [ ] Implement textbook RSA directly as `C = M^e mod n` and `M = C^d mod n`, using manual square-and-multiply. No OAEP, MGF1, PKCS#1, or replacement padding is used.
+- [ ] Implement textbook RSA directly as `C = M^e mod n` and `M = C^d mod n`, using Python's three-argument modular `pow()` operation as demonstrated in the course lab. No OAEP, MGF1, PKCS#1, or replacement padding is used.
 - [ ] Implement `rsa_encrypt_bytes(data: bytes, public_key)` and `rsa_decrypt_bytes(container, private_key)` using `TBR1` metadata (`length`, `chunk_size`, `block_count`, and ciphertext blocks), with chunk size `(n.bit_length() - 1) // 8`.
 - [ ] Implement `rsa_encrypt(m_int, public_key) -> int` and `rsa_decrypt(c_int, private_key) -> int` as the raw single-integer primitives the byte-level functions build on.
 - [ ] Add docstring/comments on every function explaining the cryptographic step for report section 3.

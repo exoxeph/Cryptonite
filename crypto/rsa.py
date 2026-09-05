@@ -6,7 +6,7 @@ be demonstrated directly. It is deterministic, malleable, and not suitable
 for production cryptography.
 """
 
-from crypto.bigint_utils import gcd, generate_prime, mod_inverse, mod_pow
+from crypto.bigint_utils import gcd, generate_prime
 
 RSA_PRIME_BITS = 128
 RSA_PUBLIC_EXPONENT = 11
@@ -28,7 +28,7 @@ def rsa_generate_keypair(prime_bits: int = RSA_PRIME_BITS, public_exponent: int 
         phi = (p - 1) * (q - 1)
         if gcd(public_exponent, phi) == 1:
             break
-    d = mod_inverse(public_exponent, phi)
+    d = pow(public_exponent, -1, phi)
     return {"public": (public_exponent, n), "private": (d, n)}
 
 
@@ -37,7 +37,7 @@ def rsa_encrypt(message: int, public_key: tuple[int, int]) -> int:
     exponent, modulus = _validate_key(public_key)
     if type(message) is not int or not 0 <= message < modulus:
         raise ValueError("RSA plaintext integer must satisfy 0 <= M < n")
-    return mod_pow(message, exponent, modulus)
+    return pow(message, exponent, modulus)
 
 
 def rsa_decrypt(ciphertext: int, private_key: tuple[int, int]) -> int:
@@ -45,7 +45,7 @@ def rsa_decrypt(ciphertext: int, private_key: tuple[int, int]) -> int:
     exponent, modulus = _validate_key(private_key)
     if type(ciphertext) is not int or not 0 <= ciphertext < modulus:
         raise ValueError("RSA ciphertext integer must satisfy 0 <= C < n")
-    return mod_pow(ciphertext, exponent, modulus)
+    return pow(ciphertext, exponent, modulus)
 
 
 def rsa_encrypt_int(message: int, public_key: tuple[int, int]) -> int:
