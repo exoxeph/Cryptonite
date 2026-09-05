@@ -77,7 +77,7 @@ def login():
             else:
                 code = otp.generate_otp()
                 otp.store_otp(row["id"], code)
-                print(f"[DEV ONLY] Cryptonite OTP for {normalized_email}: {code}")
+                print(f"[DEV ONLY] Cryptonite OTP for {normalized_email}: {code}", flush=True)
                 session["pending_auth_user_id"] = row["id"]
                 return redirect(url_for("auth.verify_otp"))
         else:

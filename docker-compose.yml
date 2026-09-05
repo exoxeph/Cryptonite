@@ -10,6 +10,7 @@ services:
       OTP_EMAIL_ENABLED: "False"
       OTP_DEV_PRINT_CODE: "True"
       SESSION_COOKIE_SECURE: "False"
+      PYTHONUNBUFFERED: "1"
     ports:
       - "5000:5000"
     volumes:

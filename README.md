@@ -76,6 +76,14 @@ Docker Desktop is the only prerequisite. These steps work on Windows,
 macOS, and Linux and keep the database and encrypted uploads in the local
 `docker-data/` directory.
 
+The Compose volume mapping is `./docker-data:/data`. To move an existing
+installation to another computer, copy the entire `docker-data/` folder beside
+the cloned repository before starting Docker. Also copy the matching `.env`
+values, especially `SECRET_KEY` and `ROOT_RSA_N`, `ROOT_RSA_E`, and
+`ROOT_RSA_D`; changing the root RSA values makes existing encrypted records
+unreadable. These files are intentionally ignored by Git because they contain
+local application state and encrypted user data.
+
 1. Copy the environment template:
 
    ```powershell
