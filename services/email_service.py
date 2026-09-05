@@ -1,4 +1,4 @@
-"""Provider boundary for transactional OTP email delivery."""
+"""Provider boundary for transactional OTP email delivery through Resend."""
 
 import requests
 from flask import current_app
@@ -9,7 +9,7 @@ class EmailDeliveryError(RuntimeError):
 
 
 def send_otp_email(to_address: str, otp_code: str) -> None:
-    """Deliver an OTP through the configured Resend provider only."""
+    """Deliver an application-generated OTP through Resend only."""
     if not isinstance(to_address, str) or not isinstance(otp_code, str):
         raise EmailDeliveryError("email delivery could not be started")
     provider = current_app.config.get("EMAIL_API_PROVIDER", "").strip().lower()
