@@ -70,40 +70,68 @@ Expected response:
 {"status":"ok"}
 ```
 
-## Docker
+## Docker: One-Computer Setup
 
-Docker Desktop is required. Create `.env` from `.env.example`, then put a
-generated `SECRET_KEY` and the decimal root RSA values in it. The container
-keeps SQLite and encrypted evidence in the local `docker-data/` directory.
+Docker Desktop is the only prerequisite. These steps work on Windows,
+macOS, and Linux and keep the database and encrypted uploads in the local
+`docker-data/` directory.
 
-Generate a local root keypair with:
+1. Copy the environment template:
 
-```powershell
-python -c "from crypto.rsa import rsa_generate_keypair; k=rsa_generate_keypair(2048); print('ROOT_RSA_E='+str(k['public'][0])); print('ROOT_RSA_N='+str(k['public'][1])); print('ROOT_RSA_D='+str(k['private'][0]))"
-```
+   ```powershell
+   Copy-Item .env.example .env
+   ```
 
-Start the application:
+2. Generate a random Flask secret without installing Python locally:
 
-```powershell
-docker compose up --build
-```
+   ```powershell
+   docker run --rm python:3.12-slim python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
 
-The compose setup bootstraps missing operational keys automatically and opens
-the app at `http://localhost:5000/`. Local OTP delivery is configured to print
-the code in the container logs, so no email provider quota is needed:
+   Put the printed value after `SECRET_KEY=` in `.env`. Do not use the
+   placeholder and do not commit `.env`.
 
-```powershell
-docker compose logs -f cryptonite
-```
+3. Build the image:
 
-Create the controlled Admin account from another terminal:
+   ```powershell
+   docker compose build
+   ```
 
-```powershell
-docker compose exec cryptonite flask --app app:create_app seed-admin
-```
+4. Generate the required 2048-bit root RSA values inside the image:
 
-Stop the container with `Ctrl+C`. Remove `docker-data/` only when you want to
-reset the local database and encrypted uploads.
+   ```powershell
+   docker compose run --rm --entrypoint python cryptonite -c "from crypto.rsa import rsa_generate_keypair; k=rsa_generate_keypair(2048); print('ROOT_RSA_E='+str(k['public'][0])); print('ROOT_RSA_N='+str(k['public'][1])); print('ROOT_RSA_D='+str(k['private'][0]))"
+   ```
+
+   Copy the three printed lines into `.env`. Keep `ROOT_RSA_D` private. The
+   root values are environment configuration and are never stored in SQLite
+   or Git.
+
+5. Start Cryptonite:
+
+   ```powershell
+   docker compose up
+   ```
+
+   The container automatically initializes SQLite and bootstraps missing
+   operational keys. Open `http://localhost:5000/`.
+
+6. Create the controlled Admin account in a second terminal:
+
+   ```powershell
+   docker compose exec cryptonite flask --app app:create_app seed-admin
+   ```
+
+   Local OTP delivery is configured for console development mode, so no email
+   provider or API quota is required. Read the verification code with:
+
+   ```powershell
+   docker compose logs -f cryptonite
+   ```
+
+To stop the app, press `Ctrl+C`. To reset the local database, keys, and
+encrypted evidence, stop the app and remove `docker-data/`. Do not remove it
+if you want the data to survive the next `docker compose up`.
 
 ## Phase Boundary
 
