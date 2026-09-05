@@ -1,6 +1,6 @@
-# Authority Bridged
+# Cryptonite
 
-Authority Bridged is a CSE447 cryptography demonstration web application.
+Cryptonite is a CSE447 cryptography demonstration web application.
 
 This repository currently includes the Phase 5 key-management infrastructure. Application features are added phase by phase.
 

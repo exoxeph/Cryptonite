@@ -24,7 +24,7 @@ def send_otp_email(to_address: str, otp_code: str) -> None:
             json={
                 "from": sender,
                 "to": [to_address],
-                "subject": "Authority Bridged verification code",
+                "subject": "Cryptonite verification code",
                 "text": f"Your verification code is {otp_code}.",
             },
             timeout=10,
