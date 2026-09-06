@@ -2,7 +2,7 @@
 
 from flask import Blueprint, current_app, g, redirect, render_template, request, session, url_for
 
-from auth.account_service import create_user
+from auth.account_service import create_user, validate_bracu_id, validate_name, validate_password
 from auth.account_service import (
     decrypt_profile_field,
     find_user_by_email,
@@ -27,17 +27,25 @@ def register():
     """Create a student account; role values from the client are ignored."""
     error = None
     if request.method == "POST":
-        fields = {name: request.form.get(name, "") for name in ("name", "email", "contact", "password")}
+        fields = {name: request.form.get(name, "") for name in ("name", "email", "contact", "password", "bracu_id")}
+        fields["contact"] = f"+880{fields['contact'].strip()}" if fields["contact"].strip().isdigit() and len(fields["contact"].strip()) == 10 else ""
         if not all(isinstance(value, str) and value.strip() for value in fields.values()):
-            error = "All fields are required."
+            error = "Enter your name, BRACU ID, email, 10-digit phone number, and password."
         else:
             try:
+                validate_name(fields["name"])
+                validate_password(fields["password"])
+                validate_bracu_id(fields["bracu_id"])
                 create_user(**fields, role="student")
             except ValueError as exc:
                 if str(exc) == "email address is already registered":
                     error = "An account with this email already exists. Try signing in instead."
-                elif str(exc) in {"name is required", "email is required", "contact is required", "password is required"}:
-                    error = "Please complete all fields before creating your account."
+                elif str(exc).startswith("password must"):
+                    error = "Password must be at least 8 characters and include uppercase, lowercase, and a number."
+                elif str(exc).startswith("name must"):
+                    error = "Name cannot contain numbers."
+                elif str(exc).startswith("BRACU ID"):
+                    error = "BRACU ID must contain exactly 8 digits."
                 else:
                     error = "Account setup is currently unavailable. Please try again later."
             except TypeError:
@@ -163,7 +171,8 @@ def profile():
                 g.current_user["id"],
                 request.form.get("name", ""),
                 request.form.get("email", ""),
-                request.form.get("contact", ""),
+                _profile_contact(request),
+                request.form.get("bracu_id", "").strip() or None,
             )
         except (TypeError, ValueError):
             error = "Profile could not be updated. Please check your information."
@@ -174,3 +183,13 @@ def profile():
     except (KeyError, TypeError, ValueError):
         return render_template("profile.html", profile=None, error="Profile could not be loaded."), 500
     return render_template("profile.html", profile=values, error=error)
+
+
+def _profile_contact(request):
+    """Accept the new local-number form while keeping legacy profile posts readable."""
+    contact = request.form.get("contact", "").strip()
+    if request.form.get("contact_country_code"):
+        if not contact.isdigit() or len(contact) != 10:
+            raise ValueError("phone number must contain exactly 10 digits")
+        return f"+880{contact}"
+    return contact

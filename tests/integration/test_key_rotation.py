@@ -2,9 +2,12 @@ import pytest
 
 from app import create_app
 from auth import otp
-from auth.account_service import create_user
+from auth.account_service import create_user, get_profile
+from auth.sessions import create_session
+from chat.services import get_conversation, send_message
 from crypto import key_manager
 from database import db
+from evidence.services import read_evidence, store_evidence
 
 
 class KeyRotationConfig:
@@ -182,6 +185,7 @@ def test_unauthenticated_cannot_view_or_rotate_keys(key_app):
     with key_app.test_client() as client:
         assert client.get("/admin/keys").status_code == 302
         assert client.post("/admin/keys/ECC_POSTS/rotate").status_code == 302
+        assert client.post("/admin/keys/ECC_POSTS/1/revoke").status_code == 302
 
 
 def test_invalid_key_purpose_rejected(key_app):
@@ -229,3 +233,186 @@ def test_key_page_exposes_metadata_not_secrets(key_app):
     assert root_private not in body
     assert cmac_secret not in body
     assert "encrypted_private_key" not in body
+
+
+def test_revoke_is_admin_only_and_visible_only_for_retired_keys(key_app):
+    admin = _user(key_app, "revoke-admin@example.com", role="admin", name="Admin")
+    student = _user(key_app, "revoke-student@example.com")
+    with key_app.test_client() as client:
+        _authenticate(client, key_app, admin)
+        assert client.post("/admin/keys/ECC_POSTS/rotate").status_code == 302
+        page = client.get("/admin/keys")
+        assert page.status_code == 200
+        assert b"Revoke" in page.data
+        assert client.post("/admin/keys/ECC_POSTS/1/revoke", data={"role": "student"}).status_code == 302
+        assert client.post("/admin/keys/ECC_POSTS/2/revoke").status_code == 400
+        assert client.post("/admin/keys/ECC_POSTS/1/revoke").status_code == 400
+        assert client.post("/admin/keys/UNKNOWN/1/revoke").status_code == 400
+        assert client.post("/admin/keys/ECC_POSTS/999/revoke").status_code == 404
+    with key_app.test_client() as client:
+        _authenticate(client, key_app, student)
+        assert client.post("/admin/keys/ECC_POSTS/2/revoke").status_code == 403
+    assert _key_rows(key_app, "ECC_POSTS")[0]["status"] == "REVOKED"
+
+
+def test_revoke_migrates_posts_before_revoking(key_app):
+    owner = _user(key_app, "post-revoke-owner@example.com")
+    admin = _user(key_app, "post-revoke-admin@example.com", role="admin", name="Admin")
+    with key_app.test_client() as client:
+        _authenticate(client, key_app, owner)
+        post_id = _create_post(client, "Before revoke")
+    before = _post_row(key_app, post_id)
+    with key_app.test_client() as client:
+        _authenticate(client, key_app, admin)
+        assert client.post("/admin/keys/ECC_POSTS/rotate").status_code == 302
+        assert client.post("/admin/keys/ECC_POSTS/1/revoke").status_code == 302
+        assert client.get(f"/posts/{post_id}").status_code == 200
+    after = _post_row(key_app, post_id)
+    assert after["ecc_key_version"] == 2
+    assert after["encrypted_title"] != before["encrypted_title"]
+    assert _key_rows(key_app, "ECC_POSTS")[0]["status"] == "REVOKED"
+    with key_app.app_context():
+        with pytest.raises(ValueError, match="revoked"):
+            key_manager.get_key_by_version("ECC_POSTS", 1)
+
+
+def test_revoke_migrates_profile_and_evidence_records(key_app):
+    owner = _user(key_app, "profile-revoke@example.com", name="Profile Owner")
+    with key_app.app_context():
+        post_id = db.execute(
+            "INSERT INTO posts (owner_id, encrypted_title, encrypted_description, ecc_key_version) VALUES (?, ?, ?, ?)",
+            (owner, "[]", "[]", 1),
+        ).lastrowid
+        evidence_id = store_evidence(post_id, owner, "proof.pdf", b"%PDF old evidence", "application/pdf")
+        old_profile = db.query_one("SELECT profile_key_version, encrypted_email FROM users WHERE id = ?", (owner,))
+        key_manager.rotate_key("RSA_PROFILE")
+        key_manager.rotate_key("RSA_EVIDENCE")
+        key_manager.revoke_key("RSA_PROFILE", 1)
+        key_manager.revoke_key("RSA_EVIDENCE", 1)
+        profile = get_profile(owner)
+        evidence = read_evidence(evidence_id, {"id": owner, "role": "student"})
+        profile_row = db.query_one("SELECT profile_key_version, encrypted_email FROM users WHERE id = ?", (owner,))
+        evidence_row = db.query_one("SELECT rsa_key_version FROM evidence WHERE id = ?", (evidence_id,))
+    assert profile["email"] == "profile-revoke@example.com"
+    assert profile_row["profile_key_version"] == 2
+    assert profile_row["encrypted_email"] != old_profile["encrypted_email"]
+    assert evidence[1] == b"%PDF old evidence"
+    assert evidence_row["rsa_key_version"] == 2
+    assert _key_rows(key_app, "RSA_PROFILE")[0]["status"] == "REVOKED"
+    assert _key_rows(key_app, "RSA_EVIDENCE")[0]["status"] == "REVOKED"
+
+
+def test_revoke_migrates_chat_ciphertext_and_mac_records(key_app):
+    owner = _user(key_app, "chat-revoke-owner@example.com")
+    with key_app.app_context():
+        # Build the post through the service so the encrypted fields use ECC_POSTS.
+        from posts.services import create_post
+        post_id = create_post(owner, "Chat revoke", "Details", False)
+        db.execute("UPDATE posts SET status = 'Acknowledged', chat_started_at = CURRENT_TIMESTAMP WHERE id = ?", (post_id,))
+        message_id = send_message(post_id, owner, "Message before key revocation")
+        key_manager.rotate_key("ECC_CHAT")
+        key_manager.rotate_key("CMAC_CHAT")
+        key_manager.revoke_key("ECC_CHAT", 1)
+        key_manager.revoke_key("CMAC_CHAT", 1)
+        row = db.query_one("SELECT ecc_key_version, cmac_key_version FROM chat_messages WHERE id = ?", (message_id,))
+        conversation = get_conversation(post_id, {"id": owner, "role": "student"})
+    assert row["ecc_key_version"] == 2
+    assert row["cmac_key_version"] == 2
+    assert conversation[0]["integrity_ok"] is True
+    assert conversation[0]["plaintext"] == "Message before key revocation"
+
+
+def test_failed_revoke_keeps_key_retired_and_records_unchanged(key_app, monkeypatch):
+    owner = _user(key_app, "failed-revoke@example.com")
+    with key_app.app_context():
+        from posts.services import create_post
+        post_id = create_post(owner, "Protected post", "Protected details", False)
+        before = _post_row(key_app, post_id)
+        key_manager.rotate_key("ECC_POSTS")
+        monkeypatch.setattr("crypto.key_revocation.ecc_decrypt_bytes", lambda *_args: (_ for _ in ()).throw(ValueError("bad ciphertext")))
+        with pytest.raises(ValueError, match="bad ciphertext"):
+            key_manager.revoke_key("ECC_POSTS", 1)
+        after = _post_row(key_app, post_id)
+        assert tuple(after) == tuple(before)
+        assert _key_rows(key_app, "ECC_POSTS")[0]["status"] == "RETIRED"
+
+
+def test_cmac_session_revocation_does_not_modify_session_rows(key_app):
+    user = _user(key_app, "session-revoke@example.com")
+    with key_app.app_context():
+        create_session(db.query_one("SELECT * FROM users WHERE id = ?", (user,)))
+        before = [tuple(row) for row in db.query_all("SELECT * FROM sessions ORDER BY id")]
+        key_manager.rotate_key("CMAC_SESSION")
+        key_manager.revoke_key("CMAC_SESSION", 1)
+        after = [tuple(row) for row in db.query_all("SELECT * FROM sessions ORDER BY id")]
+    assert after == before
+    assert _key_rows(key_app, "CMAC_SESSION")[0]["status"] == "REVOKED"
+
+
+def test_revoke_requires_an_active_replacement(key_app):
+    with key_app.app_context():
+        key_manager.generate_key("ECC_POSTS")
+        db.execute("UPDATE keys SET status = 'RETIRED' WHERE purpose = 'ECC_POSTS'")
+        with pytest.raises(KeyError, match="active key"):
+            key_manager.revoke_key("ECC_POSTS", 1)
+        assert _key_rows(key_app, "ECC_POSTS")[0]["status"] == "RETIRED"
+
+
+def test_evidence_revoke_restores_files_when_later_replacement_fails(key_app, monkeypatch):
+    owner = _user(key_app, "evidence-rollback@example.com")
+    with key_app.app_context():
+        from posts.services import create_post
+        post_id = create_post(owner, "Evidence rollback", "Details", False)
+        first_id = store_evidence(post_id, owner, "one.pdf", b"%PDF one", "application/pdf")
+        second_id = store_evidence(post_id, owner, "two.pdf", b"%PDF two", "application/pdf")
+        paths = [_evidence_path_for_test(key_app, first_id), _evidence_path_for_test(key_app, second_id)]
+        originals = [path.read_bytes() for path in paths]
+        key_manager.rotate_key("RSA_EVIDENCE")
+        original_replace = __import__("crypto.key_revocation", fromlist=["os"]).os.replace
+        calls = 0
+
+        def fail_on_second_file(source, destination):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise OSError("injected replacement failure")
+            return original_replace(source, destination)
+
+        monkeypatch.setattr("crypto.key_revocation.os.replace", fail_on_second_file)
+        with pytest.raises(OSError, match="injected"):
+            key_manager.revoke_key("RSA_EVIDENCE", 1)
+        assert [path.read_bytes() for path in paths] == originals
+        assert db.query_all("SELECT rsa_key_version FROM evidence ORDER BY id")[-2]["rsa_key_version"] == 1
+        assert _key_rows(key_app, "RSA_EVIDENCE")[0]["status"] == "RETIRED"
+        assert read_evidence(first_id, {"id": owner, "role": "student"})[1] == b"%PDF one"
+
+
+def test_revoke_refuses_to_revoke_when_dependencies_remain(key_app, monkeypatch):
+    owner = _user(key_app, "dependency-check@example.com")
+    with key_app.app_context():
+        from posts.services import create_post
+        post_id = create_post(owner, "Dependency check", "Details", False)
+        key_manager.rotate_key("ECC_POSTS")
+        monkeypatch.setattr("crypto.key_revocation._migrate_posts", lambda *_args: None)
+        with pytest.raises(ValueError, match="dependent"):
+            key_manager.revoke_key("ECC_POSTS", 1)
+        assert db.query_one("SELECT ecc_key_version FROM posts WHERE id = ?", (post_id,))["ecc_key_version"] == 1
+        assert _key_rows(key_app, "ECC_POSTS")[0]["status"] == "RETIRED"
+
+
+def test_revoke_emits_redacted_faculty_trace(key_app, capsys):
+    key_app.config["FACULTY_CRYPTO_TRACE"] = True
+    with key_app.app_context():
+        key_manager.generate_key("ECC_POSTS")
+        key_manager.rotate_key("ECC_POSTS")
+        key_manager.revoke_key("ECC_POSTS", 1)
+    output = capsys.readouterr().out
+    assert "REVOCATION_START" in output
+    assert "REVOCATION_COMPLETE" in output
+    assert "retired_version=v1" in output and "migration_target=v3 ACTIVE" in output
+    assert "private_key" not in output
+
+
+def _evidence_path_for_test(app, evidence_id):
+    from pathlib import Path
+    return Path(app.config["EVIDENCE_UPLOAD_DIR"]) / f"evidence_{evidence_id}.enc"

@@ -122,8 +122,10 @@ def retire_key(purpose: str, version: int) -> None:
 
 
 def revoke_key(purpose: str, version: int) -> None:
-    """Revoke a non-active key so it can no longer be returned for decryption."""
-    _change_lifecycle(purpose, version, "REVOKED", require_replacement=True)
+    """Migrate dependent records, then revoke a retired key."""
+    from crypto.key_revocation import reencrypt_and_revoke
+
+    reencrypt_and_revoke(purpose, version)
 
 
 def bootstrap_keys() -> None:
@@ -329,6 +331,8 @@ def _change_lifecycle(purpose: str, version: int, target_status: str, require_re
             raise ValueError("key is already revoked")
         if row["status"] == "ACTIVE" and require_replacement:
             raise ValueError("cannot retire or revoke the active key without a replacement")
+        if target_status == "REVOKED" and row["status"] != "RETIRED":
+            raise ValueError("only retired keys can be revoked")
         connection.execute(
             "UPDATE keys SET status = ?, retired_at = CURRENT_TIMESTAMP WHERE purpose = ? AND version = ?",
             (target_status, purpose, version),

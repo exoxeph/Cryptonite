@@ -145,7 +145,23 @@ def test_profile_update_reencrypts_all_fields_after_rotation(profile_app):
     assert after["profile_key_version"] == active["version"]
     assert after["encrypted_name"] != before["encrypted_name"]
     with profile_app.app_context():
-        assert get_profile(user_id) == {"name": "Alice 2", "email": "alice@example.com", "contact": "111"}
+        assert get_profile(user_id) == {"role": "student", "name": "Alice 2", "email": "alice@example.com", "contact": "111", "bracu_id": ""}
+
+
+def test_existing_student_can_add_encrypted_bracu_id(profile_app):
+    user_id = _create_user(profile_app, "alice@example.com")
+    with profile_app.test_client() as client:
+        _authenticate(client, profile_app, user_id)
+        response = client.post(
+            "/profile",
+            data={"name": "Alice", "email": "alice@example.com", "contact": "111", "bracu_id": "22101234"},
+        )
+    assert response.status_code == 302
+    with profile_app.app_context():
+        row = _row(profile_app, user_id)
+        assert row["encrypted_bracu_id"] is not None
+        assert b"22101234" not in row["encrypted_bracu_id"]
+        assert get_profile(user_id)["bracu_id"] == "22101234"
 
 
 def test_profile_rewrite_of_unchanged_values_uses_textbook_determinism(profile_app):

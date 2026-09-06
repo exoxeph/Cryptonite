@@ -378,6 +378,18 @@ def test_admin_detail_uses_post_detail_layout_without_upload_controls(admin_app)
     assert b"Upload evidence" not in response.data
 
 
+def test_admin_dashboard_loads_chat_state_for_post_summaries(admin_app):
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    owner = _user(admin_app, "owner@example.com", name="Owner")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        _post(client)
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        response = client.get("/dashboard")
+    assert response.status_code == 200
+
+
 def test_phase16_route_inventory_matches_implemented_scope(admin_app):
     expected = {
         ("GET", "/"),
@@ -387,6 +399,7 @@ def test_phase16_route_inventory_matches_implemented_scope(admin_app):
         ("GET", "/admin/posts/<int:post_id>"),
         ("POST", "/admin/posts/<int:post_id>/acknowledge"),
         ("POST", "/admin/keys/<purpose>/rotate"),
+        ("POST", "/admin/keys/<purpose>/<int:version>/revoke"),
         ("POST", "/admin/posts/<int:post_id>/status"),
         ("GET", "/dashboard"),
         ("GET", "/evidence/<int:evidence_id>"),
@@ -532,11 +545,12 @@ def test_student_only_post_creation_and_registration_are_server_enforced(admin_a
     with admin_app.test_client() as client:
         assert client.post(
             "/register",
-            data={
-                "name": "Registered",
-                "email": "registered@example.com",
-                "contact": "555",
-                "password": "password",
+                data={
+                    "name": "Registered",
+                    "bracu_id": "22101238",
+                    "email": "registered@example.com",
+                    "contact": "1700000000",
+                    "password": "Password123",
                 "role": "admin",
             },
         ).status_code == 302

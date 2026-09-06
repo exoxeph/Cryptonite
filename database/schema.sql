@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     encrypted_name BLOB NOT NULL,
     encrypted_email BLOB NOT NULL,
     encrypted_contact BLOB,
+    encrypted_bracu_id BLOB,
     email_lookup_hash BLOB NOT NULL UNIQUE,
     password_hash BLOB NOT NULL,
     password_salt BLOB NOT NULL,

@@ -245,7 +245,7 @@ def count_admin_posts(status: str = "all") -> int:
 def get_admin_dashboard(viewer) -> dict:
     _require_admin(viewer)
     rows = db.query_all(
-        """SELECT id, owner_id, encrypted_title, anonymous, status, created_at,
+        """SELECT id, owner_id, encrypted_title, anonymous, status, chat_started_at, created_at,
                   ecc_key_version,
                   (SELECT COUNT(*) FROM upvotes u WHERE u.post_id = p.id) AS upvote_count,
                   0 AS has_upvoted,

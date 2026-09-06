@@ -30,6 +30,9 @@ def init_db():
     post_columns = {row["name"] for row in connection.execute("PRAGMA table_info(posts)").fetchall()}
     if "chat_started_at" not in post_columns:
         connection.execute("ALTER TABLE posts ADD COLUMN chat_started_at TEXT")
+    user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
+    if "encrypted_bracu_id" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN encrypted_bracu_id BLOB")
     connection.commit()
 
 

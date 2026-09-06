@@ -48,7 +48,7 @@ def auth_app(tmp_path):
 
 def test_register_creates_encrypted_student(auth_app):
     with auth_app.test_client() as client:
-        response = client.post("/register", data={"name": "Alice", "email": " User@Example.com ", "contact": "555", "password": "secret"})
+        response = client.post("/register", data={"name": "Alice", "bracu_id": "22101234", "email": " User@Example.com ", "contact": "1700000000", "password": "Secret123"})
     assert response.status_code == 302
     with auth_app.app_context():
         row = db.query_one("SELECT * FROM users")
@@ -66,15 +66,27 @@ def test_registration_has_no_role_selector_and_crafted_admin_stays_student(auth_
     with auth_app.test_client() as client:
         page = client.get("/register")
         assert b'name="role"' not in page.data
-        client.post("/register", data={"name": "Bob", "email": "bob@example.com", "contact": "555", "password": "secret", "role": "admin"})
+        client.post("/register", data={"name": "Bob", "bracu_id": "22101235", "email": "bob@example.com", "contact": "1700000000", "password": "Secret123", "role": "admin"})
     with auth_app.app_context():
         assert db.query_one("SELECT role FROM users WHERE email_lookup_hash = ?", (__import__("hashlib").sha256(b"bob@example.com").digest(),))["role"] == "student"
 
 
+def test_registration_rejects_invalid_student_identity_and_password(auth_app):
+    with auth_app.test_client() as client:
+        response = client.post(
+            "/register",
+            data={"name": "Student 7", "bracu_id": "123", "email": "bad@example.com", "contact": "123", "password": "weak"},
+        )
+    assert response.status_code == 200
+    assert b"Name cannot contain numbers" in response.data or b"BRACU ID" in response.data
+    with auth_app.app_context():
+        assert db.query_one("SELECT COUNT(*) AS count FROM users") ["count"] == 0
+
+
 def test_duplicate_normalized_email_is_rejected(auth_app):
     with auth_app.test_client() as client:
-        client.post("/register", data={"name": "A", "email": "a@example.com", "contact": "1", "password": "secret"})
-        response = client.post("/register", data={"name": "B", "email": " A@EXAMPLE.COM ", "contact": "2", "password": "secret"})
+        client.post("/register", data={"name": "A", "bracu_id": "22101236", "email": "a@example.com", "contact": "1700000000", "password": "Secret123"})
+        response = client.post("/register", data={"name": "B", "bracu_id": "22101237", "email": " A@EXAMPLE.COM ", "contact": "1700000001", "password": "Secret123"})
     assert response.status_code == 200
     with auth_app.app_context():
         assert db.query_one("SELECT COUNT(*) AS count FROM users")["count"] == 1
@@ -96,7 +108,7 @@ def test_controlled_seed_creates_encrypted_admin(auth_app):
 def _register(client, email="user@example.com"):
     return client.post(
         "/register",
-        data={"name": "User", "email": email, "contact": "555", "password": "secret"},
+        data={"name": "User", "bracu_id": "22101234", "email": email, "contact": "1700000000", "password": "Secret123"},
     )
 
 
@@ -105,7 +117,7 @@ def test_login_normalizes_email_and_sends_otp_without_session(auth_app, monkeypa
     with auth_app.test_client() as client:
         _register(client, "user@example.com")
         monkeypatch.setattr(email_service, "send_otp_email", lambda address, code: sent.append((address, code)))
-        response = client.post("/login", data={"email": " USER@EXAMPLE.COM ", "password": "secret"})
+        response = client.post("/login", data={"email": " USER@EXAMPLE.COM ", "password": "Secret123"})
         assert response.status_code == 302
         assert response.location.endswith("/verify-otp")
         with client.session_transaction() as flask_session:
@@ -159,7 +171,7 @@ def test_email_failure_invalidates_otp_and_pending_state(auth_app, monkeypatch):
     with auth_app.test_client() as client:
         _register(client)
         monkeypatch.setattr(email_service, "send_otp_email", lambda *_: (_ for _ in ()).throw(email_service.EmailDeliveryError()))
-        response = client.post("/login", data={"email": "user@example.com", "password": "secret"})
+        response = client.post("/login", data={"email": "user@example.com", "password": "Secret123"})
         assert response.status_code == 200
         assert b"Verification code could not be sent. Please try again." in response.data
         with client.session_transaction() as flask_session:
@@ -184,8 +196,8 @@ def test_failed_older_delivery_does_not_invalidate_newer_otp(auth_app, monkeypat
     with auth_app.test_client() as client:
         _register(client)
         monkeypatch.setattr(email_service, "send_otp_email", deliver)
-        first = client.post("/login", data={"email": "user@example.com", "password": "secret"})
-        second = client.post("/login", data={"email": "user@example.com", "password": "secret"})
+        first = client.post("/login", data={"email": "user@example.com", "password": "Secret123"})
+        second = client.post("/login", data={"email": "user@example.com", "password": "Secret123"})
         assert first.status_code == 200
         assert second.status_code == 302
         assert sent and client.post("/verify-otp", data={"otp": sent[0]}).status_code == 302
@@ -197,7 +209,7 @@ def test_verify_route_requires_pending_auth_and_creates_session_after_otp(auth_a
         _register(client)
         sent = []
         monkeypatch.setattr(email_service, "send_otp_email", lambda _address, code: sent.append(code))
-        client.post("/login", data={"email": "user@example.com", "password": "secret"})
+        client.post("/login", data={"email": "user@example.com", "password": "Secret123"})
         response = client.post("/verify-otp", data={"otp": sent[0]})
         assert response.status_code == 302
         assert response.location.endswith("/dashboard")
@@ -212,7 +224,7 @@ def test_dev_otp_print_mode_preserves_login_flow_without_email(auth_app, capsys)
     auth_app.config["OTP_DEV_PRINT_CODE"] = True
     with auth_app.test_client() as client:
         _register(client, "dev@example.com")
-        response = client.post("/login", data={"email": "dev@example.com", "password": "secret"})
+        response = client.post("/login", data={"email": "dev@example.com", "password": "Secret123"})
         assert response.status_code == 302
         output = capsys.readouterr().out
         code = output.rsplit(": ", 1)[-1].strip()

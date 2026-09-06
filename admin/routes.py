@@ -1,5 +1,7 @@
 """Admin complaint management routes for Phase 13."""
 
+import sqlite3
+
 from flask import Blueprint, g, redirect, render_template, request, url_for
 
 from auth.decorators import role_required
@@ -40,6 +42,20 @@ def rotate_key(purpose):
         key_manager.rotate_key(purpose)
     except (KeyError, TypeError, ValueError):
         return "Key rotation could not be completed.", 400
+    return redirect(url_for("admin.keys"))
+
+
+@admin_bp.post("/admin/keys/<purpose>/<int:version>/revoke")
+@role_required("admin")
+def revoke_key(purpose, version):
+    if purpose not in VALID_KEY_PURPOSES:
+        return "Unknown key purpose.", 400
+    try:
+        key_manager.revoke_key(purpose, version)
+    except KeyError:
+        return "Key version not found.", 404
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return "Key could not be revoked. Dependent records were not changed.", 400
     return redirect(url_for("admin.keys"))
 
 

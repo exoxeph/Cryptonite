@@ -1,1 +1,68 @@
-{% extends "base.html" %}{% block title %}Key management | Authority Bridged{% endblock %}{% block content %}<section class="page-shell"><div class="container"><div class="page-header"><div><p class="eyebrow">Administration</p><h1>Cryptographic key management</h1><p>Operational keys are separated by purpose and versioned for controlled rotation.</p></div><a class="button button-secondary" href="{{ url_for('admin.posts') }}">Complaints</a></div>{% for purpose, rows in keys_by_purpose.items() %}<section class="surface" style="margin-bottom:18px"><div class="card"><div class="row-between"><h2>{{ purpose }}</h2><form method="post" action="{{ url_for('admin.rotate_key', purpose=purpose) }}"><button class="button button-secondary button-small" type="submit">Rotate</button></form></div>{% if rows %}<div class="table-wrap"><table><thead><tr><th>Version</th><th>Algorithm</th><th>Status</th><th>Created</th><th>Retired</th></tr></thead><tbody>{% for key in rows %}<tr><td>{{ key.version }}</td><td>{{ key.algorithm }}</td><td><span class="badge badge-{{ 'acknowledged' if key.status == 'ACTIVE' else 'neutral' }}">{{ key.status }}</span></td><td>{{ key.created_at }}</td><td>{{ key.retired_at or '-' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p>No keys bootstrapped.</p>{% endif %}</div></section>{% endfor %}<div class="card"><h3>What rotation means</h3><p>The active key becomes retired, a new version becomes active, and historical encrypted records continue using their original version. Rotating CMAC_SESSION invalidates existing sessions.</p></div></div></section>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Key management | Cryptonite{% endblock %}
+{% block content %}
+<section class="page-shell">
+  <div class="container">
+    <div class="page-header">
+      <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Cryptographic key management</h1>
+        <p>Rotate active keys safely and revoke retired versions after their records are migrated.</p>
+      </div>
+      <a class="button button-secondary" href="{{ url_for('admin.posts') }}">Complaints</a>
+    </div>
+
+    <div class="card" style="margin-bottom:18px">
+      <h3>Before you revoke</h3>
+      <p>Revoke is available only for retired keys. It first re-encrypts or re-authenticates every dependent record with the active replacement key. If migration fails, the key remains retired and the records are left unchanged.</p>
+    </div>
+
+    {% for purpose, rows in keys_by_purpose.items() %}
+      <section class="surface" style="margin-bottom:18px">
+        <div class="card">
+          <div class="row-between">
+            <h2>{{ purpose }}</h2>
+            <form method="post" action="{{ url_for('admin.rotate_key', purpose=purpose) }}">
+              <button class="button button-secondary button-small" type="submit">Rotate</button>
+            </form>
+          </div>
+          {% if rows %}
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Version</th><th>Algorithm</th><th>Status</th><th>Created</th><th>Retired</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {% for key in rows %}
+                    <tr>
+                      <td>{{ key.version }}</td>
+                      <td>{{ key.algorithm }}</td>
+                      <td><span class="badge badge-{{ 'acknowledged' if key.status == 'ACTIVE' else 'neutral' }}">{{ key.status }}</span></td>
+                      <td>{{ key.created_at }}</td>
+                      <td>{{ key.retired_at or '-' }}</td>
+                      <td>
+                        {% if key.status == 'RETIRED' %}
+                          <form method="post" action="{{ url_for('admin.revoke_key', purpose=purpose, version=key.version) }}" onsubmit="return confirm('Migrate dependent records and revoke this retired key?');">
+                            <button class="button button-danger button-small" type="submit">Revoke</button>
+                          </form>
+                        {% else %}
+                          <span class="muted">-</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p>No keys bootstrapped.</p>
+          {% endif %}
+        </div>
+      </section>
+    {% endfor %}
+
+    <div class="card">
+      <h3>What rotation means</h3>
+      <p>The active key becomes retired, a new version becomes active, and historical encrypted records continue using their original version until they are migrated. Rotating CMAC_SESSION invalidates existing sessions.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
