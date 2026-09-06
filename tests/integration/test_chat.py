@@ -3,7 +3,8 @@ import pytest
 from app import create_app
 from auth import otp
 from auth.account_service import create_user
-from chat.services import INTEGRITY_WARNING, get_conversation, send_message
+from chat.services import INTEGRITY_WARNING, get_conversation, initialize_chat, send_message
+from posts.services import change_status
 from crypto import key_manager
 from database import db
 
@@ -62,6 +63,17 @@ def _post(client, anonymous=False):
     return int(response.location.rsplit("/", 1)[-1])
 
 
+def _start_chat(app, post_id, message="Admin opened this conversation"):
+    """Acknowledge a post and create the first Admin-authored chat message."""
+    with app.app_context():
+        admin_id = create_user(f"Chat Admin {post_id}", f"chat-admin-{post_id}@example.com", "555", "password", role="admin")
+        admin = {"id": admin_id, "role": "admin"}
+        change_status(post_id, "Acknowledged", admin)
+        initialize_chat(post_id, admin)
+        send_message(post_id, admin_id, message)
+    return admin_id
+
+
 def _message_row(app, message_id=1):
     with app.app_context():
         return db.query_one("SELECT * FROM chat_messages WHERE id = ?", (message_id,))
@@ -73,6 +85,7 @@ def test_owner_and_admin_can_exchange_messages(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         assert client.post(f"/posts/{post_id}/chat", data={"message": "Please review this issue"}).status_code == 302
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, admin)
@@ -111,6 +124,7 @@ def test_anonymous_post_owner_can_access_chat(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client, anonymous=True)
+        _start_chat(chat_app, post_id)
         assert client.get(f"/posts/{post_id}/chat").status_code == 200
         client.post(f"/posts/{post_id}/chat", data={"message": "private"})
     with chat_app.test_client() as client:
@@ -140,6 +154,7 @@ def test_private_chat_message_length_limit(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         assert client.post(f"/posts/{post_id}/chat", data={"message": "x" * 300}).status_code == 302
         assert client.post(f"/posts/{post_id}/chat", data={"message": "x" * 301}).status_code == 400
         assert client.post(f"/posts/{post_id}/chat", data={"message": "   "}).status_code == 400
@@ -152,6 +167,7 @@ def test_message_is_encrypted_and_mac_protected_at_rest(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         client.post(f"/posts/{post_id}/chat", data={"message": plaintext})
     row = _message_row(chat_app)
     assert plaintext not in row["ciphertext"]
@@ -165,10 +181,13 @@ def test_untampered_message_not_flagged(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         client.post(f"/posts/{post_id}/chat", data={"message": "valid"})
     with chat_app.app_context():
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert messages == [{"id": 1, "sender": "Owner", "created_at": messages[0]["created_at"], "integrity_ok": True, "plaintext": "valid"}]
+    assert messages[-1]["sender"] == "Owner"
+    assert messages[-1]["integrity_ok"] is True
+    assert messages[-1]["plaintext"] == "valid"
 
 
 def test_tampered_ciphertext_detected(chat_app, monkeypatch):
@@ -176,7 +195,7 @@ def test_tampered_ciphertext_detected(chat_app, monkeypatch):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
-        client.post(f"/posts/{post_id}/chat", data={"message": "secret"})
+        _start_chat(chat_app, post_id)
     with chat_app.app_context():
         db.execute("UPDATE chat_messages SET ciphertext = ? WHERE id = 1", ("not-json",))
         monkeypatch.setattr(
@@ -185,9 +204,9 @@ def test_tampered_ciphertext_detected(chat_app, monkeypatch):
         )
         monkeypatch.setattr("chat.services.ecc_decrypt_bytes", lambda *args: pytest.fail("decryption must be skipped"))
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert messages[0]["integrity_ok"] is False
-    assert messages[0]["warning"] == INTEGRITY_WARNING
-    assert "plaintext" not in messages[0]
+    assert messages[-1]["integrity_ok"] is False
+    assert messages[-1]["warning"] == INTEGRITY_WARNING
+    assert "plaintext" not in messages[-1]
 
 
 def test_full_tamper_detection_demo_flow(chat_app):
@@ -198,24 +217,25 @@ def test_full_tamper_detection_demo_flow(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         assert client.post(f"/posts/{post_id}/chat", data={"message": plaintext}).status_code == 302
 
     with chat_app.app_context():
         normal = get_conversation(post_id, {"id": admin, "role": "admin"})
-        assert normal[0]["integrity_ok"] is True
-        assert normal[0]["plaintext"] == plaintext
-        assert "warning" not in normal[0]
+        assert normal[-1]["integrity_ok"] is True
+        assert normal[-1]["plaintext"] == plaintext
+        assert "warning" not in normal[-1]
 
-        row = db.query_one("SELECT id, ciphertext FROM chat_messages WHERE post_id = ?", (post_id,))
+        row = db.query_one("SELECT id, ciphertext FROM chat_messages WHERE post_id = ? AND sender_id = ?", (post_id, owner))
         tampered_ciphertext = "tampered"
         assert tampered_ciphertext != row["ciphertext"]
         db.execute("UPDATE chat_messages SET ciphertext = ? WHERE id = ?", (tampered_ciphertext, row["id"]))
 
         tampered = get_conversation(post_id, {"id": admin, "role": "admin"})
 
-    assert tampered[0]["integrity_ok"] is False
-    assert tampered[0]["warning"] == INTEGRITY_WARNING
-    assert "plaintext" not in tampered[0]
+    assert tampered[-1]["integrity_ok"] is False
+    assert tampered[-1]["warning"] == INTEGRITY_WARNING
+    assert "plaintext" not in tampered[-1]
 
 
 def test_tampered_mac_detected(chat_app):
@@ -223,6 +243,7 @@ def test_tampered_mac_detected(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         client.post(f"/posts/{post_id}/chat", data={"message": "secret"})
     with chat_app.app_context():
         db.execute("UPDATE chat_messages SET mac = ? WHERE id = 1", (b"bad",))
@@ -238,15 +259,17 @@ def test_message_moved_to_different_post_context_fails_mac(chat_app):
         _authenticate(client, chat_app, owner)
         post_a = _post(client)
         post_b = _post(client)
+        _start_chat(chat_app, post_a)
+        _start_chat(chat_app, post_b)
     with chat_app.app_context():
         send_message(post_a, owner, "secret")
-        row = _message_row(chat_app)
+        row = db.query_one("SELECT * FROM chat_messages WHERE post_id = ? AND sender_id = ?", (post_a, owner))
         db.execute(
             "INSERT INTO chat_messages (post_id, sender_id, ciphertext, mac, ecc_key_version, cmac_key_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (post_b, row["sender_id"], row["ciphertext"], row["mac"], row["ecc_key_version"], row["cmac_key_version"], row["created_at"]),
         )
         messages = get_conversation(post_b, {"id": owner, "role": "student"})
-    assert messages[0]["integrity_ok"] is False
+    assert messages[-1]["integrity_ok"] is False
 
 
 @pytest.mark.parametrize("column", ["sender_id", "created_at"])
@@ -256,12 +279,13 @@ def test_sender_or_timestamp_context_tamper_fails_mac(chat_app, column):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
         client.post(f"/posts/{post_id}/chat", data={"message": "secret"})
     with chat_app.app_context():
         value = other if column == "sender_id" else "2099-01-01 00:00:00"
-        db.execute(f"UPDATE chat_messages SET {column} = ? WHERE id = 1", (value,))
+        db.execute(f"UPDATE chat_messages SET {column} = ? WHERE id = 2", (value,))
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert messages[0]["integrity_ok"] is False
+    assert messages[-1]["integrity_ok"] is False
 
 
 def test_cmac_chat_rotation_preserves_old_message_verification(chat_app):
@@ -269,14 +293,15 @@ def test_cmac_chat_rotation_preserves_old_message_verification(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
     with chat_app.app_context():
         send_message(post_id, owner, "old")
         key_manager.rotate_key("CMAC_CHAT")
         send_message(post_id, owner, "new")
         rows = db.query_all("SELECT cmac_key_version, ecc_key_version FROM chat_messages ORDER BY id")
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert [row["cmac_key_version"] for row in rows] == [1, 2]
-    assert [message["plaintext"] for message in messages] == ["old", "new"]
+    assert [row["cmac_key_version"] for row in rows][-2:] == [1, 2]
+    assert [message["plaintext"] for message in messages][-2:] == ["old", "new"]
 
 
 def test_ecc_chat_rotation_preserves_old_message_decryption(chat_app):
@@ -284,15 +309,16 @@ def test_ecc_chat_rotation_preserves_old_message_decryption(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
+        _start_chat(chat_app, post_id)
     with chat_app.app_context():
         send_message(post_id, owner, "old")
         key_manager.rotate_key("ECC_CHAT")
         send_message(post_id, owner, "new")
         rows = db.query_all("SELECT ecc_key_version, cmac_key_version FROM chat_messages ORDER BY id")
         messages = get_conversation(post_id, {"id": owner, "role": "student"})
-    assert [row["ecc_key_version"] for row in rows] == [1, 2]
-    assert [row["cmac_key_version"] for row in rows] == [1, 1]
-    assert [message["plaintext"] for message in messages] == ["old", "new"]
+    assert [row["ecc_key_version"] for row in rows][-2:] == [1, 2]
+    assert [row["cmac_key_version"] for row in rows][-2:] == [1, 1]
+    assert [message["plaintext"] for message in messages][-2:] == ["old", "new"]
 
 
 def test_missing_post_returns_404(chat_app):
@@ -310,10 +336,51 @@ def test_chat_links_are_restricted_to_participants(chat_app):
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, owner)
         post_id = _post(client)
-        assert b"Private chat" in client.get(f"/posts/{post_id}").data
+        assert b"Private chat" not in client.get(f"/posts/{post_id}").data
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, other)
         assert b"Private chat" not in client.get(f"/posts/{post_id}").data
     with chat_app.test_client() as client:
         _authenticate(client, chat_app, admin)
+        assert b"Private chat" not in client.get(f"/posts/{post_id}").data
+        _start_chat(chat_app, post_id)
         assert b"Private chat" in client.get(f"/posts/{post_id}").data
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        assert b"Private chat" in client.get(f"/posts/{post_id}").data
+
+
+def test_admin_must_acknowledge_and_initialize_chat_before_owner_access(chat_app):
+    owner = _user(chat_app, "owner@example.com")
+    admin = _user(chat_app, "admin@example.com", role="admin", name="Admin")
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        post_id = _post(client)
+        assert client.get(f"/posts/{post_id}/chat").status_code == 403
+        assert client.post(f"/posts/{post_id}/chat", data={"message": "not yet"}).status_code == 403
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, admin)
+        assert client.get(f"/posts/{post_id}/chat").status_code == 403
+        assert client.post(f"/admin/posts/{post_id}/acknowledge").status_code == 302
+        assert client.get(f"/posts/{post_id}/chat").status_code == 403
+        assert client.post(f"/admin/posts/{post_id}/chat/start").status_code == 302
+        assert client.post(f"/admin/posts/{post_id}/chat/start").status_code == 302
+        assert client.post(f"/posts/{post_id}/chat", data={"message": "We are reviewing this."}).status_code == 302
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        assert client.get(f"/posts/{post_id}/chat").status_code == 200
+
+
+def test_resolved_chat_is_readable_but_rejects_new_messages(chat_app):
+    owner = _user(chat_app, "owner@example.com")
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        post_id = _post(client)
+        _start_chat(chat_app, post_id)
+        assert client.post(f"/posts/{post_id}/chat", data={"message": "Before resolution"}).status_code == 302
+    with chat_app.app_context():
+        change_status(post_id, "Resolved", {"id": owner, "role": "student"})
+    with chat_app.test_client() as client:
+        _authenticate(client, chat_app, owner)
+        assert client.get(f"/posts/{post_id}/chat").status_code == 200
+        assert client.post(f"/posts/{post_id}/chat", data={"message": "After resolution"}).status_code == 403

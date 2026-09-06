@@ -1,1 +1,74 @@
-{% extends "base.html" %}{% block title %}{{ post.title }} | Cryptonite{% endblock %}{% block content %}<section class="page-shell"><div class="container"><a href="{{ url_for('posts.post_list') }}">Back to complaints</a><div class="page-header" style="margin-top:22px"><div><p class="eyebrow">Complaint #{{ post.id }}</p><h1>{{ post.title }}</h1><p>{{ post.display_owner }} · {{ post.created_at }}</p></div><span class="badge badge-{{ post.status|lower }}">{{ post.status }}</span></div><div class="surface card"><p>{{ post.description }}</p><p class="field-hint">Upvotes: {{ post.upvote_count }}</p><div class="timeline"><div class="timeline-step active">Submitted</div><div class="timeline-line"></div><div class="timeline-step {% if post.status in ['Acknowledged','Resolved'] %}active{% endif %}">Acknowledged</div><div class="timeline-line"></div><div class="timeline-step {% if post.status == 'Resolved' %}active{% endif %}">Resolved</div></div></div><div class="card-grid" style="margin-top:18px"><section class="card"><h3>Student support</h3><p>{{ post.upvote_count }} students support this concern.</p>{% if post.can_upvote %}<form class="upvote-form" data-upvote-form method="post" action="{{ url_for('posts.upvote', post_id=post.id) }}"><button class="button button-secondary" type="submit"><span data-upvote-label>{% if post.has_upvoted %}Upvoted{% else %}Upvote{% endif %}</span></button><span class="field-hint"><strong data-upvote-count>{{ post.upvote_count }}</strong> supports</span></form>{% endif %}</section><section class="card evidence-panel"><div class="row-between"><div><h3>Supporting evidence</h3><p>Protected files attached to this complaint.</p></div><span class="badge badge-neutral">{{ evidence|length }} file{% if evidence|length != 1 %}s{% endif %}</span></div>{% if can_upload_evidence %}<form class="evidence-upload" method="post" action="{{ url_for('evidence.upload_evidence', post_id=post.id) }}" enctype="multipart/form-data"><div class="field"><label for="file">Add images or a PDF</label><input id="file" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" multiple required><span class="field-hint">You can select multiple files · PDF, PNG, JPG/JPEG · maximum 200 KB each</span></div><button class="button button-secondary button-small" type="submit">Upload evidence</button></form>{% endif %}<div class="evidence-list">{% for item in evidence %}<article class="evidence-item">{% if item.is_image %}<div class="evidence-preview"><img src="{{ url_for('evidence.get_evidence', evidence_id=item.id, inline=1) }}" alt="{{ item.filename }}"></div>{% else %}<div class="evidence-file"><span class="file-type">PDF</span><div><strong>{{ item.filename }}</strong><a href="{{ url_for('evidence.get_evidence', evidence_id=item.id, inline=1) }}" target="_blank" rel="noopener">Open PDF</a></div></div>{% endif %}</article>{% else %}<div class="evidence-empty"><p>No evidence attached yet.</p>{% if can_upload_evidence %}<span>Images and PDFs can be added here.</span>{% endif %}</div>{% endfor %}</div></section></div>{% if post.can_access_chat %}<div class="card" style="margin-top:18px"><div class="row-between"><div><h3>Private chat</h3><p>Visible only to you and authorized administrators.</p></div><a class="button button-primary" href="{{ url_for('chat.conversation', post_id=post.id) }}">Open conversation</a></div></div>{% endif %}</div></section>{% endblock %}
+{% extends "base.html" %}
+{% block title %}{{ post.title }} | Cryptonite{% endblock %}
+{% block content %}
+<section class="page-shell">
+  <div class="container">
+    <a href="{% if is_admin_view %}{{ url_for('admin.posts') }}{% else %}{{ url_for('posts.post_list') }}{% endif %}">Back to complaints</a>
+    <div class="page-header" style="margin-top:22px">
+      <div>
+        <p class="eyebrow">Complaint #{{ post.id }}</p>
+        <h1>{{ post.title }}</h1>
+        <p>{{ post.display_owner }} &middot; {{ post.created_at }}</p>
+      </div>
+      <span class="badge badge-{{ post.status|lower }}">{{ post.status }}</span>
+    </div>
+
+    <div class="surface card">
+      <p>{{ post.description }}</p>
+      <p class="field-hint">Upvotes: {{ post.upvote_count }}</p>
+      <div class="timeline">
+        <div class="timeline-step active">Submitted</div>
+        <div class="timeline-line"></div>
+        <div class="timeline-step {% if post.status in ['Acknowledged', 'Resolved'] %}active{% endif %}">Acknowledged</div>
+        <div class="timeline-line"></div>
+        <div class="timeline-step {% if post.status == 'Resolved' %}active{% endif %}">Resolved</div>
+      </div>
+      {% if is_admin_view and post.status == 'Pending' %}
+        <div class="actions" style="margin-top:18px">
+          <form method="post" action="{{ url_for('admin.acknowledge', post_id=post.id) }}"><button class="button button-primary" type="submit">Acknowledge</button></form>
+        </div>
+      {% elif not is_admin_view and post.can_mark_resolved %}
+        <div class="actions" style="margin-top:18px">
+          <form method="post" action="{{ url_for('posts.resolve', post_id=post.id) }}"><button class="button button-primary" type="submit">Mark resolved</button></form>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="card-grid" style="margin-top:18px">
+      <section class="card">
+        <h3>Student support</h3>
+        <p>{{ post.upvote_count }} students support this concern.</p>
+        {% if post.can_upvote %}
+          <form class="upvote-form" data-upvote-form method="post" action="{{ url_for('posts.upvote', post_id=post.id) }}">
+            <button class="button button-secondary" type="submit"><span data-upvote-label>{% if post.has_upvoted %}Upvoted{% else %}Upvote{% endif %}</span></button>
+            <span class="field-hint"><strong data-upvote-count>{{ post.upvote_count }}</strong> supports</span>
+          </form>
+        {% endif %}
+      </section>
+
+      <section class="card evidence-panel">
+        <div class="row-between"><div><h3>Supporting evidence</h3><p>Protected files attached to this complaint.</p></div><span class="badge badge-neutral">{{ evidence|length }} file{% if evidence|length != 1 %}s{% endif %}</span></div>
+        {% if can_upload_evidence %}
+          <form class="evidence-upload" method="post" action="{{ url_for('evidence.upload_evidence', post_id=post.id) }}" enctype="multipart/form-data">
+            <div class="field"><label for="file">Add images or a PDF</label><input id="file" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" multiple required><span class="field-hint">You can select multiple files &middot; PDF, PNG, JPG/JPEG &middot; maximum 200 KB each</span></div>
+            <button class="button button-secondary button-small" type="submit">Upload evidence</button>
+          </form>
+        {% endif %}
+        <div class="evidence-list">
+          {% for item in evidence %}
+            <article class="evidence-item">{% if item.is_image %}<div class="evidence-preview"><img src="{{ url_for('evidence.get_evidence', evidence_id=item.id, inline=1) }}" alt="{{ item.filename }}"></div>{% else %}<div class="evidence-file"><span class="file-type">PDF</span><div><strong>{{ item.filename }}</strong><a href="{{ url_for('evidence.get_evidence', evidence_id=item.id, inline=1) }}" target="_blank" rel="noopener">Open PDF</a></div></div>{% endif %}</article>
+          {% else %}
+            <div class="evidence-empty"><p>No evidence attached yet.</p>{% if can_upload_evidence %}<span>Images and PDFs can be added here.</span>{% endif %}</div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    {% if post.can_start_chat %}
+      <div class="card" style="margin-top:18px"><div class="row-between"><div><h3>Private chat</h3><p>Start a private conversation with the complaint owner.</p></div><form method="post" action="{{ url_for('admin.start_chat', post_id=post.id) }}"><button class="button button-primary" type="submit">Start private conversation</button></form></div></div>
+    {% elif post.can_access_chat %}
+      <div class="card" style="margin-top:18px"><div class="row-between"><div><h3>Private chat</h3><p>Visible only to the post owner and authorized administrators.</p></div><a class="button button-primary" href="{{ url_for('chat.conversation', post_id=post.id) }}">Open conversation</a></div></div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

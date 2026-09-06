@@ -27,6 +27,9 @@ def init_db():
     schema_sql = schema_path.read_text(encoding="utf-8")
     connection = get_db()
     connection.executescript(schema_sql)
+    post_columns = {row["name"] for row in connection.execute("PRAGMA table_info(posts)").fetchall()}
+    if "chat_started_at" not in post_columns:
+        connection.execute("ALTER TABLE posts ADD COLUMN chat_started_at TEXT")
     connection.commit()
 
 

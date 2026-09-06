@@ -141,6 +141,10 @@ def test_chat_messages_schema_has_cmac_version_and_no_receiver(app_with_temp_db)
     assert "receiver_id" not in chat_columns
 
 
+def test_posts_schema_has_explicit_chat_initialization_state(app_with_temp_db):
+    assert "chat_started_at" in columns(app_with_temp_db, "posts")
+
+
 def test_upvotes_unique_user_post_constraint_works(app_with_temp_db):
     with app_with_temp_db.app_context():
         user_id = insert_minimal_user()

@@ -5,6 +5,7 @@ from flask import Blueprint, g, redirect, render_template, request, url_for
 from auth.decorators import role_required
 from crypto import key_manager
 from evidence.services import list_evidence
+from chat.services import ChatPostNotFoundError, initialize_chat
 from posts.services import (
     count_admin_posts,
     PostNotFoundError,
@@ -73,9 +74,11 @@ def post_detail(post_id):
     if post is None:
         return "Post not found.", 404
     return render_template(
-        "admin/post_detail.html",
+        "post_detail.html",
         post=post,
         evidence=list_evidence(post_id, g.current_user),
+        can_upload_evidence=False,
+        is_admin_view=True,
     )
 
 
@@ -100,4 +103,16 @@ def acknowledge(post_id):
         return "Post not found.", 404
     except (TypeError, ValueError, PermissionError):
         return "Invalid status transition.", 400
+    return redirect(url_for("admin.post_detail", post_id=post_id))
+
+
+@admin_bp.post("/admin/posts/<int:post_id>/chat/start")
+@role_required("admin")
+def start_chat(post_id):
+    try:
+        initialize_chat(post_id, g.current_user)
+    except ChatPostNotFoundError:
+        return "Post not found.", 404
+    except (TypeError, ValueError, PermissionError):
+        return "Chat cannot be started for this complaint.", 400
     return redirect(url_for("admin.post_detail", post_id=post_id))

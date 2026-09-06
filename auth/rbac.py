@@ -1,6 +1,5 @@
 """Minimal Phase 10 authorization predicates."""
 
-
 def is_admin(user) -> bool:
     return user is not None and user["role"] == "admin"
 
@@ -31,5 +30,22 @@ def can_manage_status(user) -> bool:
     return is_admin(user)
 
 
+def can_start_chat(user, post) -> bool:
+    """Admins may initialize a conversation after acknowledging a complaint."""
+    return is_admin(user) and post["status"] == "Acknowledged" and post["chat_started_at"] is None
+
+
 def can_access_chat(user, post) -> bool:
-    return user is not None and (is_admin(user) or is_owner(user, post["owner_id"]))
+    if user is None or post["chat_started_at"] is None or post["status"] not in {"Acknowledged", "Resolved"}:
+        return False
+    return is_admin(user) or (user["role"] == "student" and is_owner(user, post["owner_id"]))
+
+
+def can_resolve_post(user, post) -> bool:
+    """Only the student who owns an acknowledged complaint may resolve it."""
+    return (
+        user is not None
+        and user["role"] == "student"
+        and is_owner(user, post["owner_id"])
+        and post["status"] == "Acknowledged"
+    )

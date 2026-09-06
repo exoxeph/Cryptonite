@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS posts (
     encrypted_description TEXT NOT NULL,
     anonymous INTEGER NOT NULL DEFAULT 0 CHECK (anonymous IN (0, 1)),
     status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Acknowledged', 'Resolved')),
+    chat_started_at TEXT,
     ecc_key_version INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

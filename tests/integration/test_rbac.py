@@ -7,6 +7,7 @@ import pytest
 from app import create_app
 from auth import otp
 from auth.account_service import create_user
+from chat.services import initialize_chat, send_message
 from crypto import key_manager
 from database import db
 from evidence.services import store_evidence
@@ -135,7 +136,7 @@ def test_admin_can_acknowledge_pending_post(admin_app):
     assert _status(admin_app, post_id)["status"] == "Acknowledged"
 
 
-def test_admin_can_resolve_acknowledged_post(admin_app):
+def test_owner_student_can_resolve_acknowledged_post(admin_app):
     owner = _user(admin_app, "owner@example.com")
     admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
     with admin_app.test_client() as client:
@@ -144,7 +145,29 @@ def test_admin_can_resolve_acknowledged_post(admin_app):
     with admin_app.test_client() as client:
         _authenticate(client, admin_app, admin)
         client.post(f"/admin/posts/{post_id}/acknowledge")
-        assert client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Resolved"}).status_code == 302
+        assert client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Resolved"}).status_code == 400
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        assert client.post(f"/posts/{post_id}/resolve").status_code == 302
+    assert _status(admin_app, post_id)["status"] == "Resolved"
+
+
+def test_only_owner_student_can_resolve_acknowledged_post(admin_app):
+    owner = _user(admin_app, "owner@example.com")
+    other = _user(admin_app, "other@example.com")
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client)
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        assert client.post(f"/admin/posts/{post_id}/acknowledge").status_code == 302
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, other)
+        assert client.post(f"/posts/{post_id}/resolve").status_code == 403
+    assert _status(admin_app, post_id)["status"] == "Acknowledged"
+    with admin_app.app_context():
+        change_status(post_id, "Resolved", {"id": owner, "role": "student"})
     assert _status(admin_app, post_id)["status"] == "Resolved"
 
 
@@ -189,7 +212,7 @@ def test_admin_cannot_move_status_backward_or_resolved(admin_app, new_status):
         client.post(f"/admin/posts/{post_id}/acknowledge")
         client.post(f"/admin/posts/{post_id}/status", data={"new_status": "Resolved"})
         assert client.post(f"/admin/posts/{post_id}/status", data={"new_status": new_status}).status_code == 400
-    assert _status(admin_app, post_id)["status"] == "Resolved"
+    assert _status(admin_app, post_id)["status"] == "Acknowledged"
 
 
 def test_same_status_transition_rejected(admin_app):
@@ -340,6 +363,21 @@ def test_admin_detail_includes_authorized_evidence_link(admin_app):
     assert b"/evidence/1" in response.data
 
 
+def test_admin_detail_uses_post_detail_layout_without_upload_controls(admin_app):
+    owner = _user(admin_app, "owner@example.com")
+    admin = _user(admin_app, "admin@example.com", role="admin", name="Admin")
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, owner)
+        post_id = _post(client)
+    with admin_app.test_client() as client:
+        _authenticate(client, admin_app, admin)
+        response = client.get(f"/admin/posts/{post_id}")
+    assert response.status_code == 200
+    assert b"Student support" in response.data
+    assert b"Supporting evidence" in response.data
+    assert b"Upload evidence" not in response.data
+
+
 def test_phase16_route_inventory_matches_implemented_scope(admin_app):
     expected = {
         ("GET", "/"),
@@ -366,6 +404,8 @@ def test_phase16_route_inventory_matches_implemented_scope(admin_app):
         ("POST", "/posts/<int:post_id>/edit"),
         ("POST", "/posts/<int:post_id>/evidence"),
         ("POST", "/posts/<int:post_id>/upvote"),
+        ("POST", "/posts/<int:post_id>/resolve"),
+        ("POST", "/admin/posts/<int:post_id>/chat/start"),
         ("GET", "/posts/new"),
         ("POST", "/posts/new"),
         ("GET", "/profile"),
@@ -412,6 +452,9 @@ def test_owner_non_owner_admin_permission_matrix(admin_app):
         assert upload.status_code == 302
     with admin_app.app_context():
         evidence_id = db.query_one("SELECT id FROM evidence WHERE post_id = ?", (post_id,))["id"]
+        change_status(post_id, "Acknowledged", {"id": admin, "role": "admin"})
+        initialize_chat(post_id, {"id": admin, "role": "admin"})
+        send_message(post_id, admin, "Admin opened the conversation")
 
     cases = {
         "owner": (owner, {"post": 200, "edit": 200, "evidence": 200, "chat": 200, "admin": 403}),

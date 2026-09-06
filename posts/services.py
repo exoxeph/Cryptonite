@@ -4,7 +4,7 @@ import sqlite3
 from math import ceil
 
 from auth.account_service import decrypt_profile_field
-from auth.rbac import can_access_chat, can_edit_post
+from auth.rbac import can_access_chat, can_edit_post, can_resolve_post, can_start_chat
 from crypto.ecc_encoding import (
     deserialize_ecc_ciphertext,
     ecc_decrypt_bytes,
@@ -92,7 +92,7 @@ def get_student_dashboard(user_id: int) -> dict:
     counts = _status_counts("WHERE owner_id = ?", (user_id,))
     counts["total"] = sum(counts.values())
     rows = db.query_all(
-        """SELECT id, owner_id, encrypted_title, anonymous, status, created_at,
+        """SELECT id, owner_id, encrypted_title, anonymous, status, chat_started_at, created_at,
                   ecc_key_version,
                   (SELECT COUNT(*) FROM upvotes u WHERE u.post_id = p.id) AS upvote_count,
                   1 AS has_upvoted,
@@ -198,11 +198,17 @@ def change_status(post_id: int, new_status: str, actor) -> None:
     row = _get_post(post_id)
     if row is None:
         raise PostNotFoundError("post does not exist")
-    if actor is None or actor["role"] != "admin":
-        raise PermissionError("Admin role required")
     if new_status not in VALID_STATUSES:
         raise ValueError("invalid status")
     if STATUS_TRANSITIONS.get(row["status"]) != new_status:
+        raise ValueError("invalid status transition")
+    if new_status == "Acknowledged":
+        if actor is None or actor["role"] != "admin":
+            raise PermissionError("Admin role required")
+    elif new_status == "Resolved":
+        if not can_resolve_post(actor, row):
+            raise PermissionError("post owner student required")
+    else:
         raise ValueError("invalid status transition")
     connection = get_db()
     with connection:
@@ -275,7 +281,7 @@ def _query_post_summaries(page: int, per_page: int, viewer_id: int, status: str 
         params.append(status)
     params.extend((per_page, offset))
     return db.query_all(
-        f"""SELECT p.id, p.owner_id, p.encrypted_title, p.anonymous, p.status, p.created_at,
+        f"""SELECT p.id, p.owner_id, p.encrypted_title, p.anonymous, p.status, p.chat_started_at, p.created_at,
                   ecc_key_version,
                   (SELECT COUNT(*) FROM upvotes u WHERE u.post_id = p.id) AS upvote_count,
                   (SELECT COUNT(*) FROM evidence e WHERE e.post_id = p.id) AS evidence_count,
@@ -308,6 +314,8 @@ def _display_post_summary(row, viewer, key_cache: dict) -> dict:
         "has_upvoted": has_upvoted,
         "can_upvote": viewer["role"] == "student" and row["owner_id"] != viewer["id"],
         "can_access_chat": can_access_chat(viewer, row),
+        "can_start_chat": can_start_chat(viewer, row),
+        "can_mark_resolved": can_resolve_post(viewer, row),
     }
 
 
@@ -374,6 +382,8 @@ def _display_post(row, viewer, reveal_anonymous: bool = False) -> dict:
         "has_upvoted": has_upvoted,
         "can_upvote": viewer["role"] == "student" and row["owner_id"] != viewer["id"],
         "can_access_chat": can_access_chat(viewer, row),
+        "can_start_chat": can_start_chat(viewer, row),
+        "can_mark_resolved": can_resolve_post(viewer, row),
     }
 
 

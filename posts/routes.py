@@ -3,7 +3,7 @@
 from flask import Blueprint, flash, g, jsonify, redirect, render_template, request, url_for
 
 from auth.decorators import login_required
-from auth.rbac import can_create_post
+from auth.rbac import can_create_post, can_upload_evidence
 from evidence.services import (
     EvidenceValidationError,
     list_evidence,
@@ -68,8 +68,25 @@ def post_detail(post_id):
         "post_detail.html",
         post=post,
         evidence=list_evidence(post_id, g.current_user),
-        can_upload_evidence=g.current_user["id"] == post.get("owner_id", g.current_user["id"]),
+        can_upload_evidence=can_upload_evidence(g.current_user, post),
+        is_admin_view=False,
     )
+
+
+@posts_bp.post("/posts/<int:post_id>/resolve")
+@login_required
+def resolve(post_id):
+    try:
+        from posts.services import change_status
+
+        change_status(post_id, "Resolved", g.current_user)
+    except PostNotFoundError:
+        return "Post not found.", 404
+    except PermissionError:
+        return "You are not allowed to resolve this complaint.", 403
+    except (TypeError, ValueError):
+        return "Invalid status transition.", 400
+    return redirect(url_for("posts.post_detail", post_id=post_id))
 
 
 @posts_bp.post("/posts/<int:post_id>/upvote")
